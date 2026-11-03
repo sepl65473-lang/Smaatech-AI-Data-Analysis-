@@ -1,6 +1,6 @@
-# RupeeRadar — Frontend
+# AI-Data-Analysis — Frontend
 
-This is the React + Vite frontend for RupeeRadar.
+This is the React + Vite frontend for AI-Data-Analysis.
 
 See the root [`README.md`](../README.md) for full project documentation, setup instructions, and architecture details.
 

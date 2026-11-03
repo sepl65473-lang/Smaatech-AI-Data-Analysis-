@@ -1,6 +1,6 @@
 <div align="center">
 
-# 💰 RupeeRadar
+# AI-Data-Analysis
 
 ### AI-Powered Personal Finance Assistant for Indian Professionals
 
@@ -19,7 +19,7 @@ Upload your bank statement. Understand where your money is going — in seconds.
 
 ## Table of Contents
 
-- [What is RupeeRadar?](#what-is-rupeeradar)
+- [What is AI-Data-Analysis?](#what-is-ai-data-analysis)
 - [Problem Statement](#problem-statement)
 - [Live Demo](#live-demo)
 - [Features](#features)
@@ -41,11 +41,11 @@ Upload your bank statement. Understand where your money is going — in seconds.
 
 ---
 
-## What is RupeeRadar?
+## What is AI-Data-Analysis?
 
-RupeeRadar is a **full-stack, AI-powered personal finance assistant** that transforms raw bank statement files into actionable spending insights. It is built for working professionals in India who make hundreds of transactions every month across UPI, cards, EMIs, subscriptions, and investments — but have no easy way to understand the full picture.
+AI-Data-Analysis is a **full-stack, AI-powered personal finance assistant** that transforms raw bank statement files into actionable spending insights. It is built for working professionals in India who make hundreds of transactions every month across UPI, cards, EMIs, subscriptions, and investments — but have no easy way to understand the full picture.
 
-You upload a PDF, CSV, or XLSX bank statement. RupeeRadar parses it, cleans the messy transaction descriptions, categorizes every entry, detects recurring payments, computes financial metrics, and generates **personalized AI insights** using the LLaMA 3.3 70B model via Groq — all within a single page-load.
+You upload a PDF, CSV, or XLSX bank statement. AI-Data-Analysis parses it, cleans the messy transaction descriptions, categorizes every entry, detects recurring payments, computes financial metrics, and generates **personalized AI insights** using the LLaMA 3.3 70B model via Groq — all within a single page-load.
 
 ---
 
@@ -65,14 +65,14 @@ No human can manually parse hundreds of these per month to figure out:
 - Am I saving enough?
 - What was my biggest expense this month?
 
-RupeeRadar solves this by automating the entire analysis pipeline — from raw bytes to a polished dashboard — in a few seconds.
+AI-Data-Analysis solves this by automating the entire analysis pipeline — from raw bytes to a polished dashboard — in a few seconds.
 
 ---
 
 ## Live Demo
 
 
-[**RupeeRadar**](https://rupeeradar-p1c4.onrender.com/)
+[**AI-Data-Analysis**](https://rupeeradar-p1c4.onrender.com/)
 
 ---
 
@@ -134,7 +134,7 @@ RupeeRadar solves this by automating the entire analysis pipeline — from raw b
 
 ## Architecture
 
-RupeeRadar follows a **layered pipeline model**. Data enters as a raw file and exits as structured JSON delivered to the React dashboard.
+AI-Data-Analysis follows a **layered pipeline model**. Data enters as a raw file and exits as structured JSON delivered to the React dashboard.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -177,7 +177,7 @@ Rule-based regex handles ~80% of Indian bank transactions instantly at zero cost
 
 ## AI / LLM Integration
 
-RupeeRadar uses **Groq's LLaMA 3.3 70B Versatile** model for two tasks:
+AI-Data-Analysis uses **Groq's LLaMA 3.3 70B Versatile** model for two tasks:
 
 ### 1. LLM Categorization Fallback
 
@@ -307,8 +307,8 @@ Raw File (PDF / CSV / Excel)
 **Step 1 — Clone the repository**
 
 ```bash
-git clone https://github.com/your-username/RupeeRadar.git
-cd RupeeRadar
+git clone https://github.com/sepl65473-lang/Smaatech-AI-Data-Analysis-.git
+cd Smaatech-AI-Data-Analysis-
 ```
 
 **Step 2 — Set up the backend**
@@ -460,8 +460,8 @@ Download a report.
 
 | Format | Content-Type | Filename |
 |---|---|---|
-| `csv` | `text/csv` | `rupeeradar_export.csv` |
-| `pdf` | `application/pdf` | `rupeeradar_report.pdf` |
+| `csv` | `text/csv` | `data_analysis_export.csv` |
+| `pdf` | `application/pdf` | `data_analysis_report.pdf` |
 
 ---
 
@@ -478,7 +478,7 @@ Liveness probe.
 ## Project Structure
 
 ```
-RupeeRadar/
+AI-Data-Analysis/
 │
 ├── backend/
 │   ├── app/
@@ -587,6 +587,6 @@ Contributions are welcome. Here's how to get started:
 
 Built with ❤️ for Indian professionals who want to understand their money.
 
-**[⬆ Back to top](#-rupeeradar)**
+**[⬆ Back to top](#ai-data-analysis)**
 
 </div>
