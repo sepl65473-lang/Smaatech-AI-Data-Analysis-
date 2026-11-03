@@ -72,7 +72,7 @@ AI-Data-Analysis solves this by automating the entire analysis pipeline — from
 ## Live Demo
 
 
-[**AI-Data-Analysis**](https://rupeeradar-p1c4.onrender.com/)
+[**AI-Data-Analysis**](https://ai-data-analysis.onrender.com/)
 
 ---
 

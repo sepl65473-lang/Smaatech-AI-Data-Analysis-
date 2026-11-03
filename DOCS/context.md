@@ -1,8 +1,8 @@
-# RupeeRadar — Project Context
+# AI-Data-Analysis — Project Context
 
 ## What Is This?
 
-RupeeRadar is an AI-powered personal finance assistant built for working professionals in India. It takes raw bank statement data as input and converts it into actionable spending insights through an end-to-end pipeline: ingestion → cleaning → categorization → analysis → dashboard.
+AI-Data-Analysis is an AI-powered personal finance assistant built for working professionals in India. It takes raw bank statement data as input and converts it into actionable spending insights through an end-to-end pipeline: ingestion → cleaning → categorization → analysis → dashboard.
 
 ---
 
@@ -10,7 +10,7 @@ RupeeRadar is an AI-powered personal finance assistant built for working profess
 
 Indian professionals transact across UPI, cards, bank transfers, subscriptions, EMIs, rent, food delivery, travel, and investments. While bank statements contain all this data, the transaction descriptions are messy, inconsistent, and hard to parse — making it nearly impossible for a person to manually understand their spending behavior.
 
-RupeeRadar bridges this gap by automating the full analysis pipeline and presenting the results in a simple, human-readable format.
+AI-Data-Analysis bridges this gap by automating the full analysis pipeline and presenting the results in a simple, human-readable format.
 
 ---
 

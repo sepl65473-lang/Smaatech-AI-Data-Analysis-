@@ -1,4 +1,4 @@
-# RupeeRadar — Edge Cases & Corner Cases
+# AI-Data-Analysis — Edge Cases & Corner Cases
 
 ## How to Use This Document
 

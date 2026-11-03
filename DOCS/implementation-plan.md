@@ -1,4 +1,4 @@
-# RupeeRadar — Phase-wise Implementation Plan
+# AI-Data-Analysis — Phase-wise Implementation Plan
 
 ## Overview
 
@@ -25,7 +25,7 @@ Estimated total effort for a solo developer: **8–12 days**
 
 #### 1.1 Create directory structure
 ```
-RupeeRadar/
+AI-Data-Analysis/
 ├── backend/
 │   ├── app/
 │   │   ├── __init__.py
@@ -277,7 +277,7 @@ Supported banks to target first:
 - `getExportUrl(sessionId: string, format: 'pdf' | 'csv'): string`
 
 #### 4.2 Home page (`src/pages/Home.tsx`)
-- Full-page centered layout with RupeeRadar branding
+- Full-page centered layout with AI-Data-Analysis branding
 - `UploadZone` component:
   - Drag-and-drop area using HTML5 drag events
   - Click-to-browse fallback
@@ -360,7 +360,7 @@ Four stat cards in a row:
 - `GET /api/export/{session_id}?format=csv`
 - Build a pandas DataFrame from `AnalysisResult.transactions`
 - Columns: `Date, Description, Clean Description, Category, Amount, Recurring, Tag`
-- Return as `StreamingResponse` with `Content-Disposition: attachment; filename=rupeeradar_export.csv`
+- Return as `StreamingResponse` with `Content-Disposition: attachment; filename=data_analysis_export.csv`
 
 #### 5.2 PDF report (`services/report_builder.py`)
 - Use ReportLab to build a multi-page PDF:
@@ -369,7 +369,7 @@ Four stat cards in a row:
   - **Page 3:** Recurring payments table
   - **Page 4:** Top 5 insights
   - **Page 5:** Full transaction list (paginated)
-- Return as `StreamingResponse` with `Content-Disposition: attachment; filename=rupeeradar_report.pdf`
+- Return as `StreamingResponse` with `Content-Disposition: attachment; filename=data_analysis_report.pdf`
 
 #### 5.3 Edge case hardening
 - Empty file → return 400 with clear message
@@ -405,7 +405,7 @@ Four stat cards in a row:
 - Write `docker-compose.yml`:
   ```yaml
   services:
-    rupeeradar:
+    ai-data-analysis:
       build: .
       ports:
         - "8000:8000"

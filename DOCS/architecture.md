@@ -1,8 +1,8 @@
-# RupeeRadar — Architecture
+# AI-Data-Analysis — Architecture
 
 ## Overview
 
-RupeeRadar is a web-based, AI-powered personal finance assistant. The architecture follows a layered pipeline model: raw bank statement data enters at one end, and structured insights exit at the other. The system is designed to run fully locally or be deployed as a lightweight web app, with no mandatory cloud dependency for the prototype.
+AI-Data-Analysis is a web-based, AI-powered personal finance assistant. The architecture follows a layered pipeline model: raw bank statement data enters at one end, and structured insights exit at the other. The system is designed to run fully locally or be deployed as a lightweight web app, with no mandatory cloud dependency for the prototype.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -360,7 +360,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ## Directory Structure (Full Project)
 
 ```
-RupeeRadar/
+AI-Data-Analysis/
 ├── DOCS/
 │   ├── problemStatement.txt
 │   ├── context.md

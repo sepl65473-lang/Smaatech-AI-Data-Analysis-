@@ -11,7 +11,7 @@ services:
       # In Docker the React SPA is served from the same origin as the API,
       # so FRONTEND_ORIGIN should match the public URL of the container.
       # Override this in backend/.env for cloud deployments, e.g.:
-      #   FRONTEND_ORIGIN=https://rupeeradar.onrender.com
+      #   FRONTEND_ORIGIN=https://ai-data-analysis.onrender.com
       FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:8000}"
     restart: unless-stopped
     volumes:
