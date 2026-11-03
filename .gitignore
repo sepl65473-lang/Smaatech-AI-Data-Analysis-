@@ -1,0 +1,86 @@
+# ── Secrets & Environment ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.env
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# ── Private Authentication & Session Stores ──────────────────────────────────
+backend/app/session/data/
+app/session/data/
+*.json.lock
+active_session_id.txt
+backend/active_session_id.txt
+backend/backups/
+backups/
+backend/recover_admin.py
+
+# ── Customer Statements, Reports & Financial Deliverables ───────────────────
+*.pdf
+*.xlsx
+*.csv
+*.zip
+axis_extracted.txt
+backend/smaatech_extracted.txt
+backend/smaatech_csv_summary.txt
+backend/downloaded_*
+backend/sample_june_2023.csv
+DOCS/audit_deliverables/
+backend/tests/artifacts_verification/
+DOCS/screenshots/
+serve.py
+
+# ── Python Cache & Virtual Environments ──────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+backend/venv/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.recalc_work/
+scratch/
+
+# ── Node / Frontend ───────────────────────────────────────────────────────────
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+.npm
+/package-lock.json
+backend/package-lock.json
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+# (keep Dockerfile and docker-compose.yml)
+
+# ── IDE & OS Artifacts ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+desktop.ini
+nul
+
+# ── Logs & Debug Artifacts ────────────────────────────────────────────────────
+*.log
+logs/
+backend/*.log

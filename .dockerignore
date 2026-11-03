@@ -1,0 +1,35 @@
+# ── Secrets — never bake into the image ──────────────────────────────────────
+backend/.env
+.env
+.env.*
+
+# ── Python build artefacts ────────────────────────────────────────────────────
+backend/venv/
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+*.egg-info/
+
+# ── Node / frontend deps & build output ──────────────────────────────────────
+# (node_modules will be installed fresh inside the builder stage)
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# ── IDE / OS artefacts ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+nul
+
+# ── Logs & test output ────────────────────────────────────────────────────────
+*.log
+logs/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# ── Docs (not needed at runtime) ─────────────────────────────────────────────
+DOCS/
+*.md

@@ -1,0 +1,28 @@
+services:
+  ai-data-platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - backend/.env          # provides GROQ_API_KEY, GROQ_MODEL, SESSION_TTL_MINUTES, etc.
+    environment:
+      # In Docker the React SPA is served from the same origin as the API,
+      # so FRONTEND_ORIGIN should match the public URL of the container.
+      # Override this in backend/.env for cloud deployments, e.g.:
+      #   FRONTEND_ORIGIN=https://rupeeradar.onrender.com
+      FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:8000}"
+    restart: unless-stopped
+    volumes:
+      - session-data:/app/app/session/data
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  session-data:
