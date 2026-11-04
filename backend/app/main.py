@@ -101,8 +101,24 @@ app.include_router(auth.router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------
-# Health check
+# Root and Health check
 # ---------------------------------------------------------------------------
+@app.get("/", tags=["root"])
+async def root():
+    """Root endpoint providing service metadata, system status, and links to documentation."""
+    from app.session.store import check_database_health
+    return {
+        "name": "AI Data Analysis Platform API",
+        "version": "1.0.0",
+        "status": "operational",
+        "documentation": "/docs",
+        "health": "/health",
+        "api_prefix": "/api",
+        "ai_enabled": settings.ai_enabled,
+        "database": check_database_health(),
+    }
+
+
 @app.get("/health", tags=["health"])
 @app.get("/api/health", tags=["health"])
 async def health_check():
