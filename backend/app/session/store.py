@@ -1,9 +1,9 @@
-"""Atomic JSON session storage with thread and process locking.
+"""Session storage adapter supporting both MongoDB Atlas and atomic local files.
 
-This remains a local file store; it is not a MongoDB adapter. Updates that
-combine a read and write should use ``update`` so the whole operation is locked.
+When MONGODB_URI is configured, sessions and application metadata are persisted
+in MongoDB Atlas. Otherwise, atomic file storage with thread and process locks
+is used for zero-dependency local development.
 """
-
 from __future__ import annotations
 
 import glob
@@ -31,7 +31,24 @@ def _thread_lock(session_id: str) -> threading.RLock:
         return _thread_locks.setdefault(session_id, threading.RLock())
 
 
-class SessionStore:
+def check_database_health() -> dict[str, Any]:
+    """Report storage health (MongoDB Atlas or persistent filesystem)."""
+    mongo_uri = os.getenv("MONGODB_URI", "").strip()
+    if mongo_uri:
+        from app.session.mongo_store import check_mongo_connection
+        res = check_mongo_connection()
+        res["type"] = "mongodb"
+        return res
+    return {
+        "configured": True,
+        "type": "filesystem",
+        "data_dir": os.path.abspath(DATA_DIR),
+        "connected": os.path.exists(DATA_DIR) and os.access(DATA_DIR, os.W_OK),
+        "detail": "Using local persistent filesystem storage",
+    }
+
+
+class FileSessionStore:
     """Persist sessions with atomic replace and cross-process per-session locks."""
 
     def __init__(self, ttl_minutes: int = settings.SESSION_TTL_MINUTES, data_dir: str | None = None):
@@ -100,8 +117,6 @@ class SessionStore:
                 os.close(fd)
             except OSError:
                 pass
-            # Leave a complete temp file for startup recovery; remove only an
-            # incomplete file when serialization itself failed.
             raise
 
     def _read_disk(self, session_id: str) -> Optional[dict]:
@@ -112,12 +127,10 @@ class SessionStore:
         except FileNotFoundError:
             pass
         except (json.JSONDecodeError, UnicodeDecodeError):
-            # A crash during replacement should leave the old file intact. If
-            # it is damaged, recover only a complete, validated temp document.
             pass
 
         candidates = sorted(glob.glob(path + ".*.tmp"), key=os.path.getmtime, reverse=True)
-        candidates += [path + ".tmp"]  # legacy temp name
+        candidates += [path + ".tmp"]
         for candidate in candidates:
             try:
                 with open(candidate, "r", encoding="utf-8") as stream:
@@ -217,6 +230,26 @@ class SessionStore:
     def active_count(self) -> int:
         self._evict_expired()
         return len(self._store)
+
+
+class SessionStore:
+    """Factory that instantiates MongoSessionStore when MONGODB_URI is provided, or FileSessionStore otherwise."""
+
+    def __new__(
+        cls,
+        ttl_minutes: int = settings.SESSION_TTL_MINUTES,
+        data_dir: str | None = None,
+        collection_name: str = "sessions",
+    ):
+        mongo_uri = os.getenv("MONGODB_URI", "").strip()
+        if mongo_uri:
+            from app.session.mongo_store import MongoSessionStore
+            return MongoSessionStore(
+                ttl_minutes=ttl_minutes,
+                collection_name=collection_name,
+                uri=mongo_uri,
+            )
+        return FileSessionStore(ttl_minutes=ttl_minutes, data_dir=data_dir)
 
 
 session_store = SessionStore()

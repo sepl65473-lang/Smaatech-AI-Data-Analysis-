@@ -104,12 +104,15 @@ app.include_router(auth.router, prefix="/api")
 # Health check
 # ---------------------------------------------------------------------------
 @app.get("/health", tags=["health"])
+@app.get("/api/health", tags=["health"])
 async def health_check():
-    """Simple liveness probe — returns ok if the server is running."""
+    """Liveness probe — returns status, AI status, and database connectivity."""
+    from app.session.store import check_database_health
     return {
         "status": "ok",
         "ai_enabled": settings.ai_enabled,
         "model": settings.GROQ_MODEL if settings.ai_enabled else None,
+        "database": check_database_health(),
     }
 
 

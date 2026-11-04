@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: ai-data-analysis-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: AUTH_COOKIE_SECURE
+        value: "true"
+      - key: AUTH_COOKIE_SAMESITE
+        value: "none"
+      - key: MONGODB_DB_NAME
+        value: "ai_data_analysis"
+      - key: GROQ_MODEL
+        value: "llama-3.3-70b-versatile"
+      - key: SESSION_TTL_MINUTES
+        value: "60"
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "10"
+      - key: MONGODB_URI
+        sync: false
+      - key: AUTH_ADMIN_EMAIL
+        sync: false
+      - key: AUTH_ADMIN_PASSWORD
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: EXTRA_CORS_ORIGINS
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

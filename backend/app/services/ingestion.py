@@ -64,26 +64,33 @@ def _get_extension(filename: str) -> str:
 # Maps of common bank CSV column name variants → canonical key
 _DATE_COLS = [
     "date", "txn date", "transaction date", "tran date", "trans date",
-    "posting date", "value date",
+    "posting date", "value date", "val date", "post date", "booking date",
+    "payment date", "date time", "datetime", "timestamp", "time", "dt",
 ]
 _DESC_COLS = [
-    "description", "narration", "particulars", "remarks",
+    "description", "narration", "particulars", "particular", "remarks",
     "txn remarks", "transaction remarks", "details", "transaction details",
-    "chq/ref number", "ref no", "narration/chq no",
+    "chq/ref number", "ref no", "narration/chq no", "narrative", "memo",
+    "comment", "payee", "beneficiary", "party", "party name", "account",
+    "title", "notes", "transaction description",
 ]
 _DEBIT_COLS = [
-    "debit", "debit amount", "withdrawal", "withdrawal amount",
-    "withdrawal amt", "dr", "dr amount", "amount(dr)", "debit(inr)",
+    "debit", "debit amount", "withdrawal", "withdrawal amount", "withdrawals",
+    "withdrawal amt", "dr", "dr amount", "amount(dr)", "debit(inr)", "debit (inr)",
+    "debit rs", "debit(rs)", "dr amt", "money out", "paid out", "expense", "payment",
 ]
 _CREDIT_COLS = [
-    "credit", "credit amount", "deposit", "deposit amount",
-    "deposit amt", "cr", "cr amount", "amount(cr)", "credit(inr)",
+    "credit", "credit amount", "deposit", "deposit amount", "deposits",
+    "deposit amt", "cr", "cr amount", "amount(cr)", "credit(inr)", "credit (inr)",
+    "credit rs", "credit(rs)", "cr amt", "money in", "received", "income", "receipt",
 ]
 _AMOUNT_COLS = [
-    "amount", "transaction amount", "txn amount", "tran amount",
+    "amount", "transaction amount", "txn amount", "tran amount", "trans amount",
+    "net amount", "total amount", "total", "amt", "inr", "value", "sum",
 ]
 _BALANCE_COLS = [
     "balance", "closing balance", "available balance", "running balance",
+    "closing bal", "available bal", "net balance", "bal",
 ]
 # Single column saying whether the amount is a debit or a credit (e.g. Axis Bank)
 _DRCR_COLS = [
@@ -178,15 +185,38 @@ def _read_csv_robust(file_bytes: bytes) -> pd.DataFrame:
 
 
 def _read_excel_robust(file_bytes: bytes) -> pd.DataFrame:
-    """Read the first sheet of an Excel file, skipping any title rows above the header."""
+    """Read an Excel file, intelligently selecting the best sheet and skipping title rows."""
     try:
-        df = pd.read_excel(io.BytesIO(file_bytes), dtype=str)
+        sheets = pd.read_excel(io.BytesIO(file_bytes), dtype=str, sheet_name=None)
+        if not sheets:
+            raise ValueError("Excel file contains no sheets.")
+        
+        # Pick the sheet with the most non-empty rows
+        best_sheet_name = None
+        best_df = None
+        max_rows = -1
+        for sname, sdf in sheets.items():
+            clean_s = sdf.dropna(how="all").dropna(axis=1, how="all")
+            if len(clean_s) > max_rows:
+                max_rows = len(clean_s)
+                best_sheet_name = sname
+                best_df = sdf
+                
+        df = best_df if best_df is not None else next(iter(sheets.values()))
         if not _looks_like_preamble(df):
             return df
-        raw = pd.read_excel(io.BytesIO(file_bytes), dtype=str, header=None)
+        
+        raw = pd.read_excel(io.BytesIO(file_bytes), dtype=str, header=None, sheet_name=best_sheet_name)
+        return _table_from_rows(raw.where(raw.notna(), "").values.tolist())
     except Exception as exc:
-        raise ValueError(f"Could not parse XLSX: {exc}") from exc
-    return _table_from_rows(raw.where(raw.notna(), "").values.tolist())
+        try:
+            df = pd.read_excel(io.BytesIO(file_bytes), dtype=str)
+            if not _looks_like_preamble(df):
+                return df
+            raw = pd.read_excel(io.BytesIO(file_bytes), dtype=str, header=None)
+            return _table_from_rows(raw.where(raw.notna(), "").values.tolist())
+        except Exception:
+            raise ValueError(f"Could not parse XLSX: {exc}") from exc
 
 
 def _looks_like_preamble(df: pd.DataFrame) -> bool:
@@ -532,9 +562,13 @@ def _safe_str(value) -> str:
 
 
 def _is_numeric(value: str) -> bool:
-    """Return True if the string looks like a number (may contain ₹, commas)."""
-    cleaned = re.sub(r"[₹,\s]", "", value.strip())
-    # Allow optional leading minus and trailing Dr/Cr suffix
+    """Return True if the string looks like a number (may contain ₹, commas, Dr/Cr, Rs, etc.)."""
+    if not value:
+        return False
+    val_str = str(value).strip()
+    cleaned = re.sub(r"(?i)\b(rs\.?|inr|usd|eur|gbp)\b", "", val_str)
+    cleaned = re.sub(r"[₹$€£,\s()]", "", cleaned)
+    cleaned = re.sub(r"/-\s*$", "", cleaned)
     cleaned = re.sub(r"\s*(dr|cr)$", "", cleaned, flags=re.IGNORECASE)
     try:
         float(cleaned)

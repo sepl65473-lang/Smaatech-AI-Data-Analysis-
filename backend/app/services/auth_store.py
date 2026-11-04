@@ -8,7 +8,7 @@ from typing import Any
 from app.session.store import SessionStore
 
 _auth_dir = os.getenv("AUTH_DATA_DIR", os.getenv("SESSION_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "session", "data")))
-_auth_store = SessionStore(ttl_minutes=10 * 365 * 24 * 60, data_dir=os.path.abspath(_auth_dir))
+_auth_store = SessionStore(ttl_minutes=10 * 365 * 24 * 60, data_dir=os.path.abspath(_auth_dir), collection_name="auth_records")
 _database_id = "00000000-0000-0000-0000-000000000001"
 
 

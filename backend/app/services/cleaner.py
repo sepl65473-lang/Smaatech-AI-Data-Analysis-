@@ -37,18 +37,64 @@ _DATE_FORMATS = [
     "%b %d, %Y",      # Jan 15, 2024
     "%B %d, %Y",
     "%Y/%m/%d",
+    "%Y-%m-%d %H:%M:%S",
+    "%d/%m/%Y %H:%M:%S",
+    "%d-%m-%Y %H:%M:%S",
+    "%m/%d/%Y %H:%M:%S",
+    "%Y/%m/%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%d/%m/%Y %H:%M",
+    "%d-%m-%Y %H:%M",
 ]
 
 
 def _parse_date(date_str: str) -> Optional[date]:
-    """Try multiple date formats and return the first successful parse."""
-    cleaned = date_str.strip()
-    # Normalise separators for ambiguous formats
-    for fmt in _DATE_FORMATS:
-        try:
-            return datetime.strptime(cleaned, fmt).date()
-        except ValueError:
-            continue
+    """Try multiple date formats, ISO formats, Excel serials, and robust fallbacks."""
+    if not date_str:
+        return None
+    cleaned = str(date_str).strip()
+    if not cleaned or cleaned.lower() in ("nan", "none", "null", "nat", ""):
+        return None
+
+    # Handle Excel float/integer serial dates (e.g. 45470)
+    try:
+        parts = cleaned.split(".")
+        if cleaned.replace(".", "", 1).isdigit() and len(parts[0]) in (5, 6):
+            serial = float(cleaned)
+            if 30000 <= serial <= 60000:
+                from datetime import timedelta
+                return (datetime(1899, 12, 30) + timedelta(days=serial)).date()
+    except (ValueError, OverflowError):
+        pass
+
+    # Normalise whitespace / remove 'T' ISO separator
+    cleaned_iso = cleaned.replace("T", " ")
+    first_part = cleaned_iso.split()[0] if " " in cleaned_iso else cleaned_iso
+
+    for target in (cleaned, cleaned_iso, first_part):
+        for fmt in _DATE_FORMATS:
+            try:
+                return datetime.strptime(target, fmt).date()
+            except ValueError:
+                continue
+
+    # Fallback to dateutil
+    try:
+        import dateutil.parser as dparser
+        return dparser.parse(cleaned, fuzzy=True, dayfirst=True).date()
+    except Exception:
+        pass
+
+    # Fallback to pandas
+    try:
+        import pandas as pd
+        dt = pd.to_datetime(cleaned, errors="coerce", dayfirst=True)
+        if pd.notna(dt):
+            return dt.date()
+    except Exception:
+        pass
+
     return None
 
 
@@ -86,8 +132,9 @@ def _parse_amount(amount_str: str) -> Optional[float]:
     if raw.startswith("-") or raw.endswith("-") or (raw.startswith("(") and raw.endswith(")")):
         has_minus = True
 
-    # Strip currency symbols, commas, spaces, parens, Dr/Cr suffixes
-    cleaned = re.sub(r"[₹$€£,\s()]", "", raw)
+    # Strip currency words, symbols, commas, spaces, parens, Dr/Cr suffixes, /-
+    cleaned = re.sub(r"(?i)\b(rs\.?|inr|usd|eur|gbp)\b", "", raw)
+    cleaned = re.sub(r"[₹$€£,\s()]", "", cleaned)
     cleaned = re.sub(r"(?i)\s*(dr|cr|debit|credit)$", "", cleaned)
     cleaned = re.sub(r"^-", "", cleaned)
     cleaned = re.sub(r"-$", "", cleaned)

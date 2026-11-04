@@ -99,9 +99,8 @@ async def analyze_data(file: UploadFile = File(...)):
         # Detect dataset type
         dataset_type = detect_dataset_type(df)
 
-        # If it's a financial dataset, redirect to the existing bank statement pipeline
+        # If it looks like a financial dataset, attempt the bank statement pipeline first
         if dataset_type == "financial":
-            # Use existing upload pipeline
             from app.services.ingestion import extract_transactions
             from app.services.cleaner import clean_transactions
             from app.services.categorizer import categorize_transactions
@@ -110,64 +109,73 @@ async def analyze_data(file: UploadFile = File(...)):
             from app.services.insight_generator import generate_insights
             from app.models.result import AnalysisResult
 
+            raw_rows = []
             try:
                 raw_rows = extract_transactions(file_bytes, filename)
-            except ValueError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except Exception as exc:
+                log.info("Could not extract file as standard bank statement: %s; falling back to universal analysis.", exc)
 
-            if not raw_rows:
-                raise HTTPException(status_code=422, detail="No transaction rows could be extracted.")
+            transactions = []
+            parse_warnings = []
+            if raw_rows:
+                try:
+                    transactions, parse_warnings = clean_transactions(raw_rows)
+                except Exception as exc:
+                    log.info("Could not clean rows as standard bank transactions: %s; falling back to universal analysis.", exc)
 
-            transactions, parse_warnings = clean_transactions(raw_rows)
-            if not transactions:
-                raise HTTPException(status_code=422, detail="No valid transactions could be parsed.")
+            if transactions:
+                transactions, categorizer_used_llm = categorize_transactions(transactions)
+                transactions, recurring_summary = detect_recurring(transactions)
+                metrics = compute_metrics(transactions)
+                category_summary = build_category_summary(transactions)
 
-            transactions, categorizer_used_llm = categorize_transactions(transactions)
-            transactions, recurring_summary = detect_recurring(transactions)
-            metrics = compute_metrics(transactions)
-            category_summary = build_category_summary(transactions)
+                if categorizer_used_llm and settings.ai_enabled:
+                    import asyncio
+                    await asyncio.sleep(5)
 
-            if categorizer_used_llm and settings.ai_enabled:
-                import asyncio
-                await asyncio.sleep(5)
+                try:
+                    insights, insights_source = generate_insights(metrics, category_summary, recurring_summary)
+                except Exception:
+                    insights, insights_source = [], "fallback"
 
-            try:
-                insights, insights_source = generate_insights(metrics, category_summary, recurring_summary)
-            except Exception:
-                insights, insights_source = [], "fallback"
+                result = AnalysisResult(
+                    session_id=session_id,
+                    transactions=transactions,
+                    metrics=metrics,
+                    insights=insights,
+                    category_summary=category_summary,
+                    recurring_summary=recurring_summary,
+                    ai_enabled=settings.ai_enabled,
+                    insights_source=insights_source,
+                    parse_warnings=parse_warnings,
+                    generated_at=datetime.now(timezone.utc),
+                )
 
-            result = AnalysisResult(
-                session_id=session_id,
-                transactions=transactions,
-                metrics=metrics,
-                insights=insights,
-                category_summary=category_summary,
-                recurring_summary=recurring_summary,
-                ai_enabled=settings.ai_enabled,
-                insights_source=insights_source,
-                parse_warnings=parse_warnings,
-                generated_at=datetime.now(timezone.utc),
-            )
+                # Store both the analysis result and the raw DataFrame for Q&A
+                session_store.set(session_id, {
+                    "analysis_type": "financial",
+                    "financial_result": result.model_dump(mode="json"),
+                    "dataset_type": "financial",
+                    "data_quality": analyze_data_quality(df),
+                    "raw_data": _to_records(df),
+                    "columns": list(df.columns),
+                    "row_count": len(df),
+                    "filename": filename,
+                    "uploaded_at": datetime.now(timezone.utc).isoformat(),
+                })
 
-            # Store both the analysis result and the raw DataFrame for Q&A
-            session_store.set(session_id, {
-                "analysis_type": "financial",
-                "financial_result": result.model_dump(mode="json"),
-                "dataset_type": "financial",
-                "data_quality": analyze_data_quality(df),
-                "raw_data": _to_records(df),
-                "columns": list(df.columns),
-                "row_count": len(df),
-            })
+                return {
+                    "session_id": session_id,
+                    "status": "complete",
+                    "analysis_type": "financial",
+                    "dataset_type": "financial",
+                    "row_count": len(transactions),
+                    "message": f"Financial analysis complete. {len(transactions)} transactions processed.",
+                }
 
-            return {
-                "session_id": session_id,
-                "status": "complete",
-                "analysis_type": "financial",
-                "dataset_type": "financial",
-                "row_count": len(transactions),
-                "message": f"Financial analysis complete. {len(transactions)} transactions processed.",
-            }
+            # If no bank statement transactions could be formed, fall back to universal dataset analysis
+            log.info("Financial format did not yield standard bank transactions; proceeding with universal business analytics.")
+            dataset_type = "general"
 
         # Universal analysis for non-financial data
         data_quality = analyze_data_quality(df)
