@@ -39,6 +39,23 @@ _ALLOWED_CONTENT_TYPES = {
     "application/json",
 }
 
+def _validate_file_signature(file_bytes: bytes, ext: str) -> None:
+    """Validate initial magic bytes/signatures to prevent disguised files."""
+    if ext == "pdf":
+        if not file_bytes.startswith(b"%PDF-"):
+            raise HTTPException(415, "Invalid PDF: Missing '%PDF-' header signature.")
+    elif ext in {"xlsx", "xls"}:
+        if not (file_bytes.startswith(b"PK\x03\x04") or file_bytes.startswith(b"\xd0\xcf\x11\xe0")):
+            raise HTTPException(415, "Invalid Excel file: Unrecognized or corrupted workbook signature.")
+    elif ext == "json":
+        stripped = file_bytes.lstrip(b" \t\r\n")
+        if not (stripped.startswith(b"{") or stripped.startswith(b"[")):
+            raise HTTPException(415, "Invalid JSON file: Root document must begin with '{' or '['.")
+    elif ext == "csv":
+        if b"\x00" in file_bytes[:2048]:
+            raise HTTPException(415, "Invalid CSV file: Binary data detected.")
+
+
 
 @router.post("/upload")
 async def upload_statement(file: UploadFile = File(...)):
@@ -70,6 +87,8 @@ async def upload_statement(file: UploadFile = File(...)):
             detail="The uploaded file is empty or too small to be a valid bank statement.",
         )
 
+    _validate_file_signature(file_bytes, ext)
+
     if len(file_bytes) > settings.MAX_UPLOAD_SIZE_BYTES:
         raise HTTPException(
             status_code=413,
@@ -87,7 +106,7 @@ async def upload_statement(file: UploadFile = File(...)):
         try:
             raw_rows = extract_transactions(file_bytes, file.filename)
         except (ValueError, Exception) as exc:
-            log.warning("Extraction failed for %s: %s", file.filename, exc)
+            log.warning("Extraction failed for session %s (type: %s): %s", session_id, ext, type(exc).__name__)
             raise HTTPException(
                 status_code=422,
                 detail=f"Could not parse file. The document may be corrupted or unreadable: {exc}",
@@ -177,7 +196,7 @@ async def upload_statement(file: UploadFile = File(...)):
         session_store.delete(session_id)
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred during analysis: {exc}",
+            detail="An unexpected error occurred during statement analysis. Please try again or contact support.",
         ) from exc
 
     return {

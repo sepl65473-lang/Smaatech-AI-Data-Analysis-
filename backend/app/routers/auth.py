@@ -23,11 +23,25 @@ LOCK_SECONDS = int(os.getenv("AUTH_LOCK_MINUTES", "15")) * 60
 IDLE_SECONDS = int(os.getenv("AUTH_IDLE_MINUTES", "30")) * 60
 ABSOLUTE_SECONDS = int(os.getenv("AUTH_SESSION_HOURS", "12")) * 3600
 REMEMBER_SECONDS = int(os.getenv("AUTH_REMEMBER_DAYS", "14")) * 86400
-COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}
+_is_prod = os.getenv("ENV", "production").lower() in {"production", "prod"}
+COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "true" if _is_prod else "false").lower() in {"1", "true", "yes"}
 COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
 if COOKIE_SAMESITE not in {"lax", "strict", "none"}: COOKIE_SAMESITE = "lax"
 SESSION_COOKIE = "sepl_session"
 CSRF_COOKIE = "sepl_csrf"
+
+
+def _get_client_ip(request: Request) -> str:
+    """Extract client IP through reverse proxies (Render, Cloudflare, Vercel)."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+        if client_ip:
+            return client_ip
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
 
 
 class LoginBody(BaseModel):
@@ -176,7 +190,7 @@ async def login(body: LoginBody, request: Request, response: Response):
     _csrf_ok(request)
     identity = body.identity.strip().lower()
     now = time.time()
-    ip = request.client.host if request.client else "unknown"
+    ip = _get_client_ip(request)
     outcome = {"error": None, "session": None, "user": None, "max_age": None, "retry": None}
     # Persist account and source-IP attempt counters under one OS lock.
     def change(db):
@@ -186,25 +200,29 @@ async def login(body: LoginBody, request: Request, response: Response):
         if ip_rec["count"] >= 30:
             outcome["error"] = (429, "Too many sign-in attempts. Try again later."); return
 
+        # Enforce account lockout before checking or clearing password
+        if user and user.get("locked_until", 0) > now:
+            remaining = max(1, int(user["locked_until"] - now))
+            outcome["error"] = (423, f"Your account is temporarily locked. Try again in {remaining} seconds.")
+            return
+
         clean_pass = body.password.strip()
         stored_hash = user["password_hash"] if user else "scrypt$32768$8$1$" + ("00" * 16) + "$" + ("00" * 32)
         valid = _verify_password(body.password, stored_hash) or _verify_password(clean_pass, stored_hash)
 
-        # Environment admin password fallback (case-insensitive)
+        # Environment admin password bootstrap fallback (only if password not yet rotated)
         env_admin_pass = os.getenv("AUTH_ADMIN_PASSWORD", "").strip()
-        if not valid and env_admin_pass and (user or identity in {os.getenv("AUTH_ADMIN_EMAIL", "").strip().lower(), "itsmaatech@gmail.com", "admin@example.com"}):
-            if clean_pass == env_admin_pass or clean_pass.casefold() == env_admin_pass.casefold():
-                valid = True
-                if user:
+        env_admin_email = os.getenv("AUTH_ADMIN_EMAIL", "").strip().lower()
+        if not valid and env_admin_pass and env_admin_email:
+            if identity == env_admin_email and hmac.compare_digest(clean_pass, env_admin_pass):
+                if user and user.get("role") == "administrator" and not user.get("password_history"):
+                    valid = True
                     user["password_hash"] = _hash_password(env_admin_pass)
 
-        # If password is verified, clear any lockouts immediately
+        # If password is verified, clear any lockouts
         if valid and user:
             user["locked_until"] = 0
             user["failed_attempts"] = 0
-
-        if user and user.get("locked_until", 0) > now:
-            outcome["error"] = (423, f"Your account is temporarily locked. Try again in {max(1, int(user['locked_until'] - now))} seconds."); return
 
         if not user or not valid or user.get("status") != "active":
             ip_rec["count"] += 1; db["ip_failures"][ip] = ip_rec

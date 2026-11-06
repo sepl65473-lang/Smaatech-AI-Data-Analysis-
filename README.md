@@ -561,6 +561,49 @@ The ingestion layer uses **fuzzy column name matching**, so slight header variat
 
 
 
+
+---
+
+## Production Deployment & Rollback Guide
+
+### Architecture Overview
+- **Frontend:** React + Vite deployed on Vercel (`https://smaatech-ai-data-analysis.vercel.app`)
+- **Backend:** FastAPI deployed on Render (`https://smaatech-ai-data-analysis-api.onrender.com`)
+- **Database:** MongoDB Atlas (M0/Shared or Dedicated) for session & metadata persistence
+- **AI Engine:** Groq Cloud LLaMA 3.3 70B with per-session quota limits
+- **Security:** SameSite=none/Secure HTTP-only cookies, HMAC CSRF tokens, magic-byte file signature validation, and background data auto-deletion.
+
+### Deploying Changes
+1. **Branch:** Push tested changes to `production-deployment`.
+2. **Backend (Render):**
+   - Root directory: `backend`
+   - Build command: `pip install -r requirements.txt`
+   - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - Render automatically triggers a zero-downtime rolling deploy on commit push.
+3. **Frontend (Vercel):**
+   - Root directory: `frontend`
+   - Build command: `npm run build`
+   - Output directory: `dist`
+   - Reverse-proxy rewrite in `vercel.json` routes `/api/*` to the Render backend.
+
+### Zero-Downtime Rollback Process
+- **Render Backend Rollback:**
+  1. Navigate to [Render Dashboard](https://dashboard.render.com) -> `smaatech-ai-data-analysis-api`.
+  2. Select **Deploys** in the left sidebar.
+  3. Find the previous successful deployment.
+  4. Click `...` and choose **Rollback to this deploy** (instant container switch).
+- **Vercel Frontend Rollback:**
+  1. Navigate to [Vercel Project Dashboard](https://vercel.com) -> `smaatech-ai-data-analysis`.
+  2. Select **Deployments**.
+  3. Locate the previous production deployment.
+  4. Click `...` and click **Promote to Production** (instant CDN edge alias update).
+- **Git Revert:**
+  ```bash
+  git checkout production-deployment
+  git revert <commit-hash>
+  git push origin production-deployment
+  ```
+
 ## Contributing
 
 Contributions are welcome. Here's how to get started:

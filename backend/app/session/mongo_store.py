@@ -10,6 +10,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 log = logging.getLogger(__name__)
@@ -79,48 +80,71 @@ class MongoSessionStore:
             return data.model_dump(mode="json")
         return copy.deepcopy(data)
 
+    def _make_expiry(self) -> datetime:
+        return datetime.fromtimestamp(time.time() + self._ttl_seconds, tz=timezone.utc)
+
+    @staticmethod
+    def _is_expired(doc: dict) -> bool:
+        exp = doc.get("expires_at")
+        if exp is None:
+            return False
+        if isinstance(exp, datetime):
+            now = datetime.now(timezone.utc)
+            exp_utc = exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc)
+            return now > exp_utc
+        try:
+            return time.time() > float(exp)
+        except (ValueError, TypeError):
+            return False
+
     def create(self) -> str:
         session_id = str(uuid.uuid4())
         col = self._get_collection()
-        now = time.time()
-        expires_at = now + self._ttl_seconds
+        now_dt = datetime.now(timezone.utc)
+        expires_at = self._make_expiry()
         col.insert_one({
             "_id": session_id,
             "data": None,
             "expires_at": expires_at,
-            "created_at": now,
-            "updated_at": now,
+            "created_at": now_dt,
+            "updated_at": now_dt,
         })
         return session_id
 
     def set(self, session_id: str, data: Any) -> None:
         col = self._get_collection()
-        now = time.time()
-        expires_at = now + self._ttl_seconds
+        now_dt = datetime.now(timezone.utc)
+        expires_at = self._make_expiry()
         serialized = self._serialize(data)
         col.update_one(
             {"_id": session_id},
             {"$set": {
                 "data": serialized,
                 "expires_at": expires_at,
-                "updated_at": now,
+                "updated_at": now_dt,
             }},
             upsert=True,
         )
 
     def ensure(self, session_id: str, data: Any) -> None:
-        """Create a record once without overwriting an existing document."""
+        """Create a record once without overwriting an existing valid document."""
         col = self._get_collection()
-        now = time.time()
-        expires_at = now + self._ttl_seconds
+        doc = col.find_one({"_id": session_id})
+        if doc is not None:
+            if self._is_expired(doc):
+                col.delete_one({"_id": session_id})
+            else:
+                return
+        now_dt = datetime.now(timezone.utc)
+        expires_at = self._make_expiry()
         serialized = self._serialize(data)
         col.update_one(
             {"_id": session_id},
             {"$setOnInsert": {
                 "data": serialized,
                 "expires_at": expires_at,
-                "created_at": now,
-                "updated_at": now,
+                "created_at": now_dt,
+                "updated_at": now_dt,
             }},
             upsert=True,
         )
@@ -129,10 +153,9 @@ class MongoSessionStore:
         """Atomically read the document, mutate it, and persist it."""
         col = self._get_collection()
         doc = col.find_one({"_id": session_id})
-        now = time.time()
         if doc is None:
             raise KeyError(session_id)
-        if doc.get("expires_at") and now > float(doc.get("expires_at")):
+        if self._is_expired(doc):
             col.delete_one({"_id": session_id})
             raise KeyError(session_id)
 
@@ -141,13 +164,14 @@ class MongoSessionStore:
             data = {}
         result = updater(data)
         serialized = self._serialize(data)
-        expires_at = now + self._ttl_seconds
+        now_dt = datetime.now(timezone.utc)
+        expires_at = self._make_expiry()
         col.update_one(
             {"_id": session_id},
             {"$set": {
                 "data": serialized,
                 "expires_at": expires_at,
-                "updated_at": now,
+                "updated_at": now_dt,
             }},
         )
         return copy.deepcopy(data), result
@@ -157,8 +181,7 @@ class MongoSessionStore:
         doc = col.find_one({"_id": session_id})
         if doc is None:
             return None
-        now = time.time()
-        if doc.get("expires_at") and now > float(doc.get("expires_at")):
+        if self._is_expired(doc):
             col.delete_one({"_id": session_id})
             return None
         return copy.deepcopy(doc.get("data"))
@@ -168,8 +191,7 @@ class MongoSessionStore:
         doc = col.find_one({"_id": session_id})
         if doc is None:
             return False
-        now = time.time()
-        if doc.get("expires_at") and now > float(doc.get("expires_at")):
+        if self._is_expired(doc):
             col.delete_one({"_id": session_id})
             return False
         return True
@@ -177,3 +199,22 @@ class MongoSessionStore:
     def delete(self, session_id: str) -> None:
         col = self._get_collection()
         col.delete_one({"_id": session_id})
+
+    def prune_expired(self) -> int:
+        """MongoDB Atlas TTL index handles expiration automatically, but this ensures explicit cleanup."""
+        col = self._get_collection()
+        now = time.time()
+        now_dt = datetime.now(timezone.utc)
+        result = col.delete_many({
+            "$or": [
+                {"expires_at": {"$lte": now_dt}},
+                {"expires_at": {"$lte": now}},
+            ]
+        })
+        return result.deleted_count
+
+    @property
+    def active_count(self) -> int:
+        col = self._get_collection()
+        now_dt = datetime.now(timezone.utc)
+        return col.count_documents({"expires_at": {"$gt": now_dt}})

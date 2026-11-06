@@ -16,6 +16,7 @@ openpyxl cannot store calculated results, so each formula's value is recorded in
 """
 
 from __future__ import annotations
+import logging
 
 import io
 from datetime import date, datetime
@@ -609,11 +610,16 @@ def build_xlsx(ds: dict) -> tuple[bytes, dict]:
     # openpyxl writes formulas but does not evaluate them. Calculate all 443
     # generated formulas with the independent formulas engine and preserve the
     # formulas while adding real cached results to the XLSX package.
-    from app.services.deliverables.recalculate_xlsx import recalculate_xlsx
-    recalculated, engine_info = recalculate_xlsx(buf.getvalue())
-    info = {"cache": b.cache, "charts": dict(b.charts),
-            "formula_count": len(b.cache), "calculation_engine": engine_info["engine"]}
-    return recalculated, info
+    try:
+        from app.services.deliverables.recalculate_xlsx import recalculate_xlsx
+        recalculated, engine_info = recalculate_xlsx(buf.getvalue())
+        info = {"cache": b.cache, "charts": dict(b.charts),
+                "formula_count": len(b.cache), "calculation_engine": engine_info.get("engine", "formulas")}
+        return recalculated, info
+    except (ImportError, ModuleNotFoundError, Exception) as exc:
+        logging.getLogger(__name__).warning("Formula recalculation engine unavailable (%s); exporting raw openpyxl workbook", exc)
+        return buf.getvalue(), {"cache": b.cache, "charts": dict(b.charts),
+                                "formula_count": len(b.cache), "calculation_engine": "openpyxl"}
 
 
 def _display(value, fmt: str) -> str:

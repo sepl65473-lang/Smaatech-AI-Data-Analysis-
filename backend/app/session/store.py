@@ -34,11 +34,22 @@ def _thread_lock(session_id: str) -> threading.RLock:
 def check_database_health() -> dict[str, Any]:
     """Report storage health (MongoDB Atlas or persistent filesystem)."""
     mongo_uri = os.getenv("MONGODB_URI", "").strip()
+    require_mongo = os.getenv("REQUIRE_MONGODB", "").strip().lower() in ("true", "1", "yes") or (
+        os.getenv("ENV", "").strip().lower() == "production"
+        and os.getenv("REQUIRE_MONGODB", "true").strip().lower() not in ("false", "0", "no")
+    )
     if mongo_uri:
         from app.session.mongo_store import check_mongo_connection
         res = check_mongo_connection()
         res["type"] = "mongodb"
         return res
+    if require_mongo:
+        return {
+            "configured": False,
+            "connected": False,
+            "type": "mongodb",
+            "detail": "MONGODB_URI is required in production environment but not configured.",
+        }
     return {
         "configured": True,
         "type": "filesystem",
@@ -226,6 +237,28 @@ class FileSessionStore:
         for sid in [key for key, value in self._store.items() if now > value["expires_at"]]:
             self._store.pop(sid, None)
 
+    def prune_expired(self) -> int:
+        """Evict both in-memory and on-disk expired session files and stale locks."""
+        self._evict_expired()
+        count = 0
+        now = time.time()
+        for path in glob.glob(os.path.join(self._data_dir, "*.json")):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                if now > float(payload.get("expires_at", 0)):
+                    os.remove(path)
+                    lock_path = path + ".lock"
+                    if os.path.exists(lock_path):
+                        try:
+                            os.remove(lock_path)
+                        except OSError:
+                            pass
+                    count += 1
+            except Exception:
+                continue
+        return count
+
     @property
     def active_count(self) -> int:
         self._evict_expired()
@@ -242,12 +275,21 @@ class SessionStore:
         collection_name: str = "sessions",
     ):
         mongo_uri = os.getenv("MONGODB_URI", "").strip()
+        require_mongo = os.getenv("REQUIRE_MONGODB", "").strip().lower() in ("true", "1", "yes") or (
+            os.getenv("ENV", "").strip().lower() == "production"
+            and os.getenv("REQUIRE_MONGODB", "true").strip().lower() not in ("false", "0", "no")
+        )
         if mongo_uri:
             from app.session.mongo_store import MongoSessionStore
             return MongoSessionStore(
                 ttl_minutes=ttl_minutes,
                 collection_name=collection_name,
                 uri=mongo_uri,
+            )
+        if require_mongo:
+            raise RuntimeError(
+                "Production requires MongoDB Atlas persistent storage, but MONGODB_URI is not set. "
+                "Silent fallback to ephemeral local filesystem storage is disabled."
             )
         return FileSessionStore(ttl_minutes=ttl_minutes, data_dir=data_dir)
 

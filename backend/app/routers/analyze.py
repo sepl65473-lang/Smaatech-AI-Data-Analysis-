@@ -9,6 +9,8 @@ GET  /api/analyze/{id}/download — Download cleaned data as CSV or Excel
 """
 
 from __future__ import annotations
+import os
+import time
 
 import io
 import logging
@@ -31,6 +33,23 @@ router = APIRouter(tags=["analysis"])
 log = logging.getLogger(__name__)
 
 _ALLOWED_EXTENSIONS = {"pdf", "csv", "xlsx", "xls", "json"}
+
+def _validate_file_signature(file_bytes: bytes, ext: str) -> None:
+    """Validate initial magic bytes/signatures to prevent disguised files."""
+    if ext == "pdf":
+        if not file_bytes.startswith(b"%PDF-"):
+            raise HTTPException(415, "Invalid PDF: Missing '%PDF-' header signature.")
+    elif ext in {"xlsx", "xls"}:
+        if not (file_bytes.startswith(b"PK\x03\x04") or file_bytes.startswith(b"\xd0\xcf\x11\xe0")):
+            raise HTTPException(415, "Invalid Excel file: Unrecognized or corrupted workbook signature.")
+    elif ext == "json":
+        stripped = file_bytes.lstrip(b" \t\r\n")
+        if not (stripped.startswith(b"{") or stripped.startswith(b"[")):
+            raise HTTPException(415, "Invalid JSON file: Root document must begin with '{' or '['.")
+    elif ext == "csv":
+        if b"\x00" in file_bytes[:2048]:
+            raise HTTPException(415, "Invalid CSV file: Binary data detected.")
+
 
 
 def _to_records(df: pd.DataFrame) -> list[dict]:
@@ -76,6 +95,8 @@ async def analyze_data(file: UploadFile = File(...)):
 
     if not file_bytes or len(file_bytes) < 10:
         raise HTTPException(status_code=400, detail="File is empty or too small.")
+
+    _validate_file_signature(file_bytes, ext)
 
     if len(file_bytes) > settings.MAX_UPLOAD_SIZE_BYTES:
         raise HTTPException(
@@ -253,9 +274,11 @@ async def get_analysis(session_id: str):
 # POST /api/analyze/{session_id}/qa — Ask a question about the data
 # ---------------------------------------------------------------------------
 
+MAX_QA_PER_SESSION = int(os.getenv("MAX_QA_PER_SESSION", "15"))
+
 @router.post("/analysis/{session_id}/qa")
 async def ask_question_endpoint(session_id: str, request: QuestionRequest):
-    """Ask a natural-language question about the uploaded data."""
+    """Ask a natural-language question about the uploaded data with rate limiting & quota."""
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
@@ -263,17 +286,39 @@ async def ask_question_endpoint(session_id: str, request: QuestionRequest):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
+    # Quota check
+    qa_count = data.get("qa_count", 0)
+    if qa_count >= MAX_QA_PER_SESSION:
+        raise HTTPException(
+            status_code=429,
+            detail=f"AI question quota of {MAX_QA_PER_SESSION} questions per session reached. All dashboard analytics and exports remain available.",
+        )
+
+    # Cooldown rate limit (min 2 seconds between questions)
+    last_qa_time = data.get("last_qa_time", 0)
+    now = time.time()
+    if now - last_qa_time < 2.0:
+        raise HTTPException(status_code=429, detail="Please wait a moment before asking another question.")
+
     raw_data = data.get("raw_data", [])
     df = pd.DataFrame(raw_data)
-
     analysis = data.get("business_analysis") or data.get("financial_result") or {}
 
     try:
         result = answer_question(request.question, df, analysis)
+        
+        # Update usage counter under session lock
+        def increment_qa(d):
+            d["qa_count"] = d.get("qa_count", 0) + 1
+            d["last_qa_time"] = now
+        session_store.update(session_id, increment_qa)
+        
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
-        log.exception("Q&A failed")
-        raise HTTPException(status_code=500, detail=f"Could not answer question: {exc}") from exc
+        log.exception("Q&A failed for session %s", session_id)
+        raise HTTPException(status_code=500, detail="Could not answer question at this time. Please try again.") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -385,3 +430,12 @@ async def download_data(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="data_analysis_export.xlsx"'},
     )
+
+
+@router.delete("/analysis/{session_id}")
+async def delete_analysis_endpoint(session_id: str):
+    """Explicitly delete uploaded dataset and its analysis from persistent storage."""
+    if not session_store.exists(session_id):
+        raise HTTPException(status_code=404, detail="Session not found or already deleted.")
+    session_store.delete(session_id)
+    return {"ok": True, "message": "Dataset and session permanently deleted."}
