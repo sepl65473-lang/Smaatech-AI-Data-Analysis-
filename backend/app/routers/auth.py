@@ -218,6 +218,23 @@ async def login(body: LoginBody, request: Request, response: Response):
                 if user and user.get("role") == "administrator" and not user.get("password_history"):
                     valid = True
                     user["password_hash"] = _hash_password(env_admin_pass)
+                elif not user and not db.get("users"):
+                    user_id = secrets.token_hex(16)
+                    user = {
+                        "id": user_id,
+                        "email": env_admin_email,
+                        "password_hash": _hash_password(env_admin_pass),
+                        "password_history": [],
+                        "role": "administrator",
+                        "permissions": ["platform:access", "users:manage", "audit:read", "sessions:revoke"],
+                        "status": "active",
+                        "failed_attempts": 0,
+                        "locked_until": 0,
+                        "created_at": now,
+                    }
+                    db.setdefault("users", {})[env_admin_email] = user
+                    auth_store.audit(db, "admin_autobootstrap", user_id, user_id, source=ip)
+                    valid = True
 
         # If password is verified, clear any lockouts
         if valid and user:
