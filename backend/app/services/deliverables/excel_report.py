@@ -607,19 +607,21 @@ def build_xlsx(ds: dict) -> tuple[bytes, dict]:
     b.wb.active = 0
     buf = io.BytesIO()
     b.wb.save(buf)
-    # openpyxl writes formulas but does not evaluate them. Calculate all 443
-    # generated formulas with the independent formulas engine and preserve the
-    # formulas while adding real cached results to the XLSX package.
-    try:
-        from app.services.deliverables.recalculate_xlsx import recalculate_xlsx
-        recalculated, engine_info = recalculate_xlsx(buf.getvalue())
-        info = {"cache": b.cache, "charts": dict(b.charts),
-                "formula_count": len(b.cache), "calculation_engine": engine_info.get("engine", "formulas")}
-        return recalculated, info
-    except (ImportError, ModuleNotFoundError, Exception) as exc:
-        logging.getLogger(__name__).warning("Formula recalculation engine unavailable (%s); exporting raw openpyxl workbook", exc)
-        return buf.getvalue(), {"cache": b.cache, "charts": dict(b.charts),
-                                "formula_count": len(b.cache), "calculation_engine": "openpyxl"}
+    # openpyxl writes formulas and fullCalcOnLoad=True so Excel/Google Sheets calculate them on open.
+    # Optional offline formula pre-evaluation via 'formulas' package is enabled via ENABLE_FORMULAS_RECALC.
+    recalc_enabled = os.getenv("ENABLE_FORMULAS_RECALC", "false").strip().lower() in ("true", "1")
+    if recalc_enabled:
+        try:
+            from app.services.deliverables.recalculate_xlsx import recalculate_xlsx
+            recalculated, engine_info = recalculate_xlsx(buf.getvalue())
+            info = {"cache": b.cache, "charts": dict(b.charts),
+                    "formula_count": len(b.cache), "calculation_engine": engine_info.get("engine", "formulas")}
+            return recalculated, info
+        except (ImportError, ModuleNotFoundError, Exception) as exc:
+            logging.getLogger(__name__).warning("Formula recalculation engine unavailable (%s); exporting raw openpyxl workbook", exc)
+
+    return buf.getvalue(), {"cache": b.cache, "charts": dict(b.charts),
+                            "formula_count": len(b.cache), "calculation_engine": "openpyxl"}
 
 
 def _display(value, fmt: str) -> str:
