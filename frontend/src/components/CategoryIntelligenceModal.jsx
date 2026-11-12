@@ -29,14 +29,14 @@ export default function CategoryIntelligenceModal({
   onUpdateMapping,
   onCategoryUpdated,
 }) {
-  if (!isOpen) return null
-
   const [selectedTxnId, setSelectedTxnId] = useState(null)
   const [targetCategory, setTargetCategory] = useState('Rent')
   const [applyToAllParty, setApplyToAllParty] = useState(true)
   const [filterMode, setFilterMode] = useState('review') // 'review' | 'all'
   const [loading, setLoading] = useState(false)
   const [statusMsg, setStatusMsg] = useState('')
+
+  if (!isOpen) return null
 
   const isUserConfirmed = (t) => ['user', 'user_override'].includes(t.classification_source)
   const isNeedsReview = (t) => !isUserConfirmed(t) && (

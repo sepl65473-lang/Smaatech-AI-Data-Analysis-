@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import api from './api/client'
+import { AuthContext } from './context/AuthContext'
 import Home from './pages/Home'
 import Results from './pages/Results'
 import Login from './pages/Login'
@@ -23,16 +24,17 @@ function RoutedApp() {
     try { await api.post('/auth/logout') } finally { setUser(null); setAuth('signed-out'); navigate('/login', { replace: true }) }
   }
   if (auth === 'loading') return <div className="min-h-screen grid place-items-center text-slate-600">Checking your secure session…</div>
-  return <>
-    {auth === 'signed-in' && <div className="fixed right-4 top-4 z-[100] flex items-center gap-2"><button type="button" onClick={()=>setShowPasswordDialog(true)} className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow">Change password</button><button type="button" onClick={logout} className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow">Sign out</button></div>}
-    {showPasswordDialog&&<PasswordDialog onClose={()=>setShowPasswordDialog(false)}/>}
-    <Routes>
-      <Route path="/login" element={auth === 'signed-in' ? <Navigate to="/" replace/> : <Login/>}/>
-      <Route path="/" element={auth === 'signed-in' ? <Home/> : <Navigate to="/login" replace state={{ from: location }}/>} />
-      <Route path="/results" element={auth === 'signed-in' ? <Results/> : <Navigate to="/login" replace state={{ from: location }}/>} />
-      <Route path="*" element={<Navigate to={auth === 'signed-in' ? '/' : '/login'} replace />} />
-    </Routes>
-  </>
+  return (
+    <AuthContext.Provider value={{ user, auth, logout, openPasswordDialog: () => setShowPasswordDialog(true) }}>
+      {showPasswordDialog && <PasswordDialog onClose={() => setShowPasswordDialog(false)} />}
+      <Routes>
+        <Route path="/login" element={auth === 'signed-in' ? <Navigate to="/" replace/> : <Login/>}/>
+        <Route path="/" element={auth === 'signed-in' ? <Home/> : <Navigate to="/login" replace state={{ from: location }}/>} />
+        <Route path="/results" element={auth === 'signed-in' ? <Results/> : <Navigate to="/login" replace state={{ from: location }}/>} />
+        <Route path="*" element={<Navigate to={auth === 'signed-in' ? '/' : '/login'} replace />} />
+      </Routes>
+    </AuthContext.Provider>
+  )
 }
 
 function PasswordDialog({ onClose }) {
@@ -41,6 +43,15 @@ function PasswordDialog({ onClose }) {
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   async function submit(event) {
     event.preventDefault(); setError('')
     if (next !== confirm) { setError('The new passwords do not match.'); return }
