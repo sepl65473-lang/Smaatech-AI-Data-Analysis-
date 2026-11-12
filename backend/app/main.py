@@ -78,6 +78,8 @@ def _security_headers(response, request: Request):
 @app.middleware("http")
 async def protect_api(request: Request, call_next):
     """Require a live cookie session on every application API except auth endpoints."""
+    if request.method == "OPTIONS":
+        return await call_next(request)
     path = request.url.path
     if os.getenv("AUTH_REQUIRED", "true").lower() not in {"0", "false", "no"} and path.startswith("/api/") and not path.startswith("/api/auth/"):
         from app.routers.auth import current_user
@@ -87,7 +89,7 @@ async def protect_api(request: Request, call_next):
             user = None
         if not user:
             return _security_headers(JSONResponse({"detail": "Sign in required."}, status_code=401), request)
-        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        if request.method not in {"GET", "HEAD"}:
             from app.routers.auth import require_csrf_for_mutation
             try:
                 require_csrf_for_mutation(request)
