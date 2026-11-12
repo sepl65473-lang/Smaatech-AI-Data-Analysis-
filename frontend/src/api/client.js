@@ -10,8 +10,11 @@ const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
-  const csrf = csrfToken || document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))?.split('=').slice(1).join('=')
-  if (csrf) config.headers['X-CSRF-Token'] = decodeURIComponent(csrf)
+  const method = (config.method || 'get').toUpperCase()
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    const csrf = csrfToken || document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))?.split('=').slice(1).join('=')
+    if (csrf) config.headers['X-CSRF-Token'] = decodeURIComponent(csrf)
+  }
   return config
 })
 
