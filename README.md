@@ -634,4 +634,4 @@ Built with ❤️ for Indian professionals who want to understand their money.
 
 </div>
 
-<!-- vercel-git-deployment-verified: 2026-11-12 -->
+<!-- vercel-git-deployment-verified: 2026-11-12-v2 -->
