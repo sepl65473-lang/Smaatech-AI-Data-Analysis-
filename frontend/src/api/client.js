@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
+export const API_BASE_URL = (typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app'))
+  ? '/api'
+  : (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 let csrfToken = ''
 
 const api = axios.create({
