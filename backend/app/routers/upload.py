@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.models.result import AnalysisResult
@@ -102,85 +103,87 @@ async def upload_statement(file: UploadFile = File(...)):
     session_id = session_store.create()
 
     try:
-        # ------------------------------------------------------------------
-        try:
-            raw_rows = extract_transactions(file_bytes, file.filename)
-        except (ValueError, Exception) as exc:
-            log.warning("Extraction failed for session %s (type: %s): %s", session_id, ext, type(exc).__name__)
-            raise HTTPException(
-                status_code=422,
-                detail=f"Could not parse file. The document may be corrupted or unreadable: {exc}",
-            ) from exc
+        def _process_pipeline():
+            # ------------------------------------------------------------------
+            try:
+                raw_rows = extract_transactions(file_bytes, file.filename)
+            except (ValueError, Exception) as exc:
+                log.warning("Extraction failed for session %s (type: %s): %s", session_id, ext, type(exc).__name__)
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Could not parse file. The document may be corrupted or unreadable: {exc}",
+                ) from exc
 
-        if not raw_rows:
-            raise HTTPException(
-                status_code=422,
-                detail="No transaction rows could be extracted from the file. "
-                       "Please check that it is a valid bank statement.",
+            if not raw_rows:
+                raise HTTPException(
+                    status_code=422,
+                    detail="No transaction rows could be extracted from the file. "
+                           "Please check that it is a valid bank statement.",
+                )
+
+            # ------------------------------------------------------------------
+            # Stage 2 — Cleaning
+            # ------------------------------------------------------------------
+            transactions, parse_warnings = clean_transactions(raw_rows)
+
+            if not transactions:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "No valid transactions could be parsed. "
+                        "The file may be corrupted or in an unsupported format. "
+                        + (f"Warnings: {'; '.join(parse_warnings)}" if parse_warnings else "")
+                    ),
+                )
+
+            # ------------------------------------------------------------------
+            # Stage 3 — Categorisation (rule-based; LLM fallback in Phase 3)
+            # ------------------------------------------------------------------
+            transactions, categorizer_used_llm = categorize_transactions(transactions)
+
+            # ------------------------------------------------------------------
+            # Stage 4 — Recurring detection
+            # ------------------------------------------------------------------
+            transactions, recurring_summary = detect_recurring(transactions)
+
+            # ------------------------------------------------------------------
+            # Stage 5 — Metrics
+            # ------------------------------------------------------------------
+            metrics = compute_metrics(transactions)
+            category_summary = build_category_summary(transactions)
+
+            # ------------------------------------------------------------------
+            # Stage 6 — Insights (always AI-generated via Groq)
+            # ------------------------------------------------------------------
+            if categorizer_used_llm and settings.ai_enabled:
+                import time as _time
+                _time.sleep(5)
+            try:
+                insights, insights_source = generate_insights(metrics, category_summary, recurring_summary)
+            except Exception as exc:
+                log.warning("Insight generation error (non-fatal): %s", exc)
+                insights, insights_source = [], "fallback"
+
+            # ------------------------------------------------------------------
+            # Assemble result
+            # ------------------------------------------------------------------
+            result = AnalysisResult(
+                session_id=session_id,
+                transactions=transactions,
+                metrics=metrics,
+                insights=insights,
+                category_summary=category_summary,
+                recurring_summary=recurring_summary,
+                ai_enabled=settings.ai_enabled,
+                insights_source=insights_source,
+                parse_warnings=parse_warnings,
+                generated_at=datetime.now(timezone.utc),
             )
 
-        # ------------------------------------------------------------------
-        # Stage 2 — Cleaning
-        # ------------------------------------------------------------------
-        transactions, parse_warnings = clean_transactions(raw_rows)
+            session_store.set(session_id, result.model_dump(mode="json"))
+            return len(transactions), parse_warnings, insights_source
 
-        if not transactions:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "No valid transactions could be parsed. "
-                    "The file may be corrupted or in an unsupported format. "
-                    + (f"Warnings: {'; '.join(parse_warnings)}" if parse_warnings else "")
-                ),
-            )
-
-        # ------------------------------------------------------------------
-        # Stage 3 — Categorisation (rule-based; LLM fallback in Phase 3)
-        # ------------------------------------------------------------------
-        transactions, categorizer_used_llm = categorize_transactions(transactions)
-
-        # ------------------------------------------------------------------
-        # Stage 4 — Recurring detection
-        # ------------------------------------------------------------------
-        transactions, recurring_summary = detect_recurring(transactions)
-
-        # ------------------------------------------------------------------
-        # Stage 5 — Metrics
-        # ------------------------------------------------------------------
-        metrics = compute_metrics(transactions)
-        category_summary = build_category_summary(transactions)
-
-        # ------------------------------------------------------------------
-        # Stage 6 — Insights (always AI-generated via Groq)
-        # ------------------------------------------------------------------
-        # If the categorizer already used Groq this request, give the
-        # rate-limit window a moment to clear before the insights call.
-        if categorizer_used_llm and settings.ai_enabled:
-            import asyncio as _asyncio
-            await _asyncio.sleep(5)
-        try:
-            insights, insights_source = generate_insights(metrics, category_summary, recurring_summary)
-        except Exception as exc:
-            log.warning("Insight generation error (non-fatal): %s", exc)
-            insights, insights_source = [], "fallback"
-
-        # ------------------------------------------------------------------
-        # Assemble result
-        # ------------------------------------------------------------------
-        result = AnalysisResult(
-            session_id=session_id,
-            transactions=transactions,
-            metrics=metrics,
-            insights=insights,
-            category_summary=category_summary,
-            recurring_summary=recurring_summary,
-            ai_enabled=settings.ai_enabled,
-            insights_source=insights_source,
-            parse_warnings=parse_warnings,
-            generated_at=datetime.now(timezone.utc),
-        )
-
-        session_store.set(session_id, result.model_dump(mode="json"))
+        transaction_count, parse_warnings, insights_source = await run_in_threadpool(_process_pipeline)
 
     except HTTPException:
         # Clean up the session if pipeline failed
@@ -202,12 +205,12 @@ async def upload_statement(file: UploadFile = File(...)):
     return {
         "session_id": session_id,
         "status": "complete",
-        "transaction_count": len(transactions),
+        "transaction_count": transaction_count,
         "parse_warnings": parse_warnings,
         "ai_enabled": settings.ai_enabled,
         "insights_source": insights_source,
         "message": (
-            f"Analysis complete. {len(transactions)} transactions processed."
+            f"Analysis complete. {transaction_count} transactions processed."
             + (f" ({len(parse_warnings)} rows skipped)" if parse_warnings else "")
         ),
     }
