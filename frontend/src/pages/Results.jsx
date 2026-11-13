@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react'
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { getResults, getAnalysis, getErrorMessage } from '../api/client'
 
@@ -49,19 +49,27 @@ function Skeleton() {
 // ---------------------------------------------------------------------------
 // Error state
 // ---------------------------------------------------------------------------
-function ErrorView({ message, onRetry }) {
+function ErrorView({ message, onRetry, onReupload }) {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 flex items-center justify-center px-4">
       <div className="bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/60 rounded-2xl p-8 max-w-md w-full text-center shadow-sm">
         <div className="text-4xl mb-3">⚠️</div>
         <p className="text-red-600 dark:text-red-400 font-semibold mb-1">{message}</p>
-        <p className="text-xs text-gray-400 mb-5">Your statement session may have expired or failed verification.</p>
-        <button
-          onClick={onRetry}
-          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-sm text-xs"
-        >
-          Upload Statement Again
-        </button>
+        <p className="text-xs text-gray-400 mb-5">Your statement session may be processing or temporarily delayed.</p>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={onRetry}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-sm text-xs"
+          >
+            Retry Loading
+          </button>
+          <button
+            onClick={onReupload}
+            className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-200 rounded-xl font-semibold transition-colors shadow-sm text-xs"
+          >
+            Upload Again
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -100,16 +108,22 @@ export default function Results() {
     intelligenceTag: '', // 'missing_ref' | 'weekend' | 'largest' | 'unusual' | 'repeated' | 'uncategorized'
   })
 
-  useEffect(() => {
+  const fetchResults = useCallback(() => {
     if (!sessionId) {
       navigate('/', { replace: true })
       return
     }
+    setLoading(true)
+    setError(null)
     ;(isDataset ? getAnalysis(sessionId) : getResults(sessionId))
       .then(setResult)
       .catch((err) => setError(getErrorMessage(err)))
       .finally(() => setLoading(false))
   }, [sessionId, isDataset, navigate])
+
+  useEffect(() => {
+    fetchResults()
+  }, [fetchResults])
 
   function scrollToDashboard() {
     dashboardRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -369,7 +383,8 @@ export default function Results() {
     return (
       <ErrorView
         message={error ?? 'Something went wrong.'}
-        onRetry={() => navigate('/')}
+        onRetry={fetchResults}
+        onReupload={() => navigate('/')}
       />
     )
 

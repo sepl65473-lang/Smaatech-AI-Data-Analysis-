@@ -20,10 +20,29 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-api.interceptors.response.use((response) => {
-  if (response.config.url?.endsWith('/auth/csrf') && response.data?.csrf_token) csrfToken = response.data.csrf_token
-  return response
-})
+api.interceptors.response.use(
+  (response) => {
+    if (response.config.url?.endsWith('/auth/csrf') && response.data?.csrf_token) csrfToken = response.data.csrf_token
+    return response
+  },
+  async (error) => {
+    const config = error.config
+    if (!config) return Promise.reject(error)
+
+    const isGet = (config.method || 'get').toUpperCase() === 'GET'
+    const status = error.response?.status
+    const isTransient = [502, 503, 504].includes(status) || error.code === 'ECONNABORTED'
+
+    config.__retryCount = config.__retryCount || 0
+    if (isGet && isTransient && config.__retryCount < 3) {
+      config.__retryCount += 1
+      await new Promise((res) => setTimeout(res, 1200 * config.__retryCount))
+      return api(config)
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 export function getCsrfToken() {
   return csrfToken || decodeURIComponent(document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))?.split('=').slice(1).join('=') || '')
