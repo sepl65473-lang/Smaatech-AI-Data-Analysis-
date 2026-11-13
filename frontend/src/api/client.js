@@ -34,9 +34,9 @@ api.interceptors.response.use(
     const isTransient = [502, 503, 504].includes(status) || error.code === 'ECONNABORTED'
 
     config.__retryCount = config.__retryCount || 0
-    if (isGet && isTransient && config.__retryCount < 3) {
+    if (isGet && isTransient && config.__retryCount < 2) {
       config.__retryCount += 1
-      await new Promise((res) => setTimeout(res, 1200 * config.__retryCount))
+      await new Promise((res) => setTimeout(res, 3000))
       return api(config)
     }
 

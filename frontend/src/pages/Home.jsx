@@ -7,6 +7,7 @@ export default function Home() {
   const [file, setFile] = useState(null)
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [analyzingStatus, setAnalyzingStatus] = useState('')
   const [error, setError] = useState(null)
   const inputRef = useRef(null)
   const navigate = useNavigate()
@@ -38,20 +39,27 @@ export default function Home() {
     if (!file) return
     setLoading(true)
     setError(null)
+    setAnalyzingStatus('Analyzing statement…')
     try {
       try {
         const { session_id } = await uploadStatement(file)
+        setAnalyzingStatus('Preparing analytics dashboard…')
+        await new Promise((resolve) => setTimeout(resolve, 1800))
         navigate(`/results?sid=${session_id}`)
       } catch (err) {
         // 422 = not a bank statement → run the universal dataset analysis instead
         if (err?.response?.status !== 422) throw err
+        setAnalyzingStatus('Analyzing dataset…')
         const { session_id } = await uploadDataset(file)
+        setAnalyzingStatus('Preparing dataset dashboard…')
+        await new Promise((resolve) => setTimeout(resolve, 1800))
         navigate(`/results?sid=${session_id}&mode=dataset`)
       }
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
       setLoading(false)
+      setAnalyzingStatus('')
     }
   }
 
@@ -119,7 +127,7 @@ export default function Home() {
               bg-green-600 hover:bg-green-700 disabled:bg-gray-300 dark:disabled:bg-slate-800 disabled:cursor-not-allowed
             "
           >
-            {loading ? 'Analyzing…' : 'Analyze Data'}
+            {loading ? (analyzingStatus || 'Analyzing…') : 'Analyze Data'}
           </button>
 
           {/* Privacy note */}
