@@ -52,7 +52,7 @@ def _get_dataset(session_id: str) -> dict:
 
 
 @router.get("/export/{session_id}/status")
-async def get_export_status(session_id: str):
+def get_export_status(session_id: str):
     """
     Check deliverable readiness and return metadata and canonical filenames.
     """
@@ -84,7 +84,7 @@ async def get_export_status(session_id: str):
 
 
 @router.get("/export/{session_id}")
-async def export_report(
+def export_report(
     session_id: str,
     format: str = Query(default="pdf", pattern="^(pdf|xlsx|html|zip|csv)$"),
     preview: bool = Query(default=False),

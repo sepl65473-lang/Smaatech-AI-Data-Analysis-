@@ -26,7 +26,7 @@ class CategoryOverrideRequest(BaseModel):
 
 
 @router.get("/results/{session_id}")
-async def get_results(session_id: str):
+def get_results(session_id: str):
     """
     Retrieve analysis results for a previously uploaded statement.
     Returns 404 if the session does not exist or has expired.
