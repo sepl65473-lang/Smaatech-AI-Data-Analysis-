@@ -43,7 +43,8 @@ def test_unmatched_and_model_suggestion_metadata(monkeypatch):
     assert "requires user review" in txn.classification_reason
 
 
-def test_user_remap_propagates_to_all_exports_and_persists():
+def test_user_remap_propagates_to_all_exports_and_persists(monkeypatch):
+    monkeypatch.setenv("ENABLE_FORMULAS_RECALC", "true")
     source = os.path.join(os.path.dirname(__file__), "axis_june_2023_original.pdf")
     client = TestClient(app)
     with open(source, "rb") as statement:

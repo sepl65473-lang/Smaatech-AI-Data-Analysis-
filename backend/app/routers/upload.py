@@ -42,6 +42,23 @@ _ALLOWED_CONTENT_TYPES = {
 }
 
 
+def _validate_file_signature(file_bytes: bytes, ext: str) -> None:
+    """Validate initial magic bytes/signatures to prevent disguised files."""
+    if ext == "pdf":
+        if not file_bytes.startswith(b"%PDF-"):
+            raise HTTPException(415, "Invalid PDF: Missing '%PDF-' header signature.")
+    elif ext in {"xlsx", "xls"}:
+        if not (file_bytes.startswith(b"PK\x03\x04") or file_bytes.startswith(b"\xd0\xcf\x11\xe0")):
+            raise HTTPException(415, "Invalid Excel file: Unrecognized or corrupted workbook signature.")
+    elif ext == "json":
+        stripped = file_bytes.lstrip(b" \t\r\n")
+        if not (stripped.startswith(b"{") or stripped.startswith(b"[")):
+            raise HTTPException(415, "Invalid JSON file: Root document must begin with '{' or '['.")
+    elif ext == "csv":
+        if b"\x00" in file_bytes[:2048]:
+            raise HTTPException(415, "Invalid CSV file: Binary data detected.")
+
+
 @router.post("/upload")
 async def upload_statement(file: UploadFile = File(...), request: Request = None):
     """
@@ -75,6 +92,8 @@ async def upload_statement(file: UploadFile = File(...), request: Request = None
             status_code=400,
             detail="The uploaded file is empty or too small to be a valid bank statement.",
         )
+
+    _validate_file_signature(file_bytes, ext)
 
     if len(file_bytes) > settings.MAX_UPLOAD_SIZE_BYTES:
         raise HTTPException(
