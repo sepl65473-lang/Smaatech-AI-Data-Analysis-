@@ -240,8 +240,8 @@ export default function Login() {
               <span>Enterprise Financial Intelligence</span>
             </div>
             <h1 className="showcase-title">
-              Financial Audit &
-              <span className="title-accent">Intelligence Platform</span>
+              Turn Financial Data
+              <span className="title-accent">Into Business Intelligence.</span>
             </h1>
             <p className="showcase-desc">
               Transform complex bank statements into verified audit deliverables with automated zero-delta reconciliation and intelligent classification.
@@ -251,29 +251,29 @@ export default function Login() {
               <div className="feature-pill">
                 <div className="feature-icon"><Icon name="chart" size={18} /></div>
                 <div className="feature-meta">
-                  <strong>Zero-Delta Audit</strong>
-                  <small>Automated mathematical proof</small>
+                  <strong>Financial Intelligence</strong>
+                  <small>Automated zero-delta mathematical proof</small>
                 </div>
               </div>
               <div className="feature-pill">
                 <div className="feature-icon"><Icon name="chip" size={18} /></div>
                 <div className="feature-meta">
-                  <strong>Smart Classification</strong>
-                  <small>Rule-based & AI classification</small>
+                  <strong>AI-Powered Analysis</strong>
+                  <small>Rule-based & ML pattern recognition</small>
                 </div>
               </div>
               <div className="feature-pill">
                 <div className="feature-icon"><Icon name="shield" size={18} /></div>
                 <div className="feature-meta">
-                  <strong>Enterprise Security</strong>
-                  <small>Signed sessions & CSRF tokens</small>
+                  <strong>Enterprise-Grade Security</strong>
+                  <small>Signed sessions & CSRF protection</small>
                 </div>
               </div>
               <div className="feature-pill">
                 <div className="feature-icon"><Icon name="bolt" size={18} /></div>
                 <div className="feature-meta">
-                  <strong>Instant Deliverables</strong>
-                  <small>Excel, PDF, CSV, HTML & ZIP</small>
+                  <strong>Production-Ready Deliverables</strong>
+                  <small>Excel, PDF, CSV, HTML & ZIP packages</small>
                 </div>
               </div>
             </div>
