@@ -33,6 +33,7 @@ backend/sample_june_2023.csv
 DOCS/audit_deliverables/
 backend/tests/artifacts_verification/
 DOCS/screenshots/
+backend/tests/screenshots/
 serve.py
 
 # ── Python Cache & Virtual Environments ──────────────────────────────────────

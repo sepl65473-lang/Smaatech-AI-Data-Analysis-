@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react'
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { getResults, getAnalysis, getErrorMessage } from '../api/client'
 
@@ -15,7 +15,7 @@ import RecurringList from '../components/RecurringList'
 import TransactionExplorer from '../components/TransactionExplorer'
 import ReconciliationAudit from '../components/ReconciliationAudit'
 import DatasetResults from '../components/DatasetResults'
-import ThemeToggle from '../components/ThemeToggle'
+import DashboardHeader from '../components/DashboardHeader'
 import StickySectionNav from '../components/StickySectionNav'
 import MetricExplanationModal from '../components/MetricExplanationModal'
 import CategoryIntelligenceModal from '../components/CategoryIntelligenceModal'
@@ -49,19 +49,27 @@ function Skeleton() {
 // ---------------------------------------------------------------------------
 // Error state
 // ---------------------------------------------------------------------------
-function ErrorView({ message, onRetry }) {
+function ErrorView({ message, onRetry, onReupload }) {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 flex items-center justify-center px-4">
       <div className="bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/60 rounded-2xl p-8 max-w-md w-full text-center shadow-sm">
         <div className="text-4xl mb-3">⚠️</div>
         <p className="text-red-600 dark:text-red-400 font-semibold mb-1">{message}</p>
-        <p className="text-xs text-gray-400 mb-5">Your statement session may have expired or failed verification.</p>
-        <button
-          onClick={onRetry}
-          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-sm text-xs"
-        >
-          Upload Statement Again
-        </button>
+        <p className="text-xs text-gray-400 mb-5">Your statement session may be processing or temporarily delayed.</p>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={onRetry}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-sm text-xs"
+          >
+            Retry Loading
+          </button>
+          <button
+            onClick={onReupload}
+            className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-200 rounded-xl font-semibold transition-colors shadow-sm text-xs"
+          >
+            Upload Again
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -100,16 +108,22 @@ export default function Results() {
     intelligenceTag: '', // 'missing_ref' | 'weekend' | 'largest' | 'unusual' | 'repeated' | 'uncategorized'
   })
 
-  useEffect(() => {
+  const fetchResults = useCallback(() => {
     if (!sessionId) {
       navigate('/', { replace: true })
       return
     }
+    setLoading(true)
+    setError(null)
     ;(isDataset ? getAnalysis(sessionId) : getResults(sessionId))
       .then(setResult)
       .catch((err) => setError(getErrorMessage(err)))
       .finally(() => setLoading(false))
   }, [sessionId, isDataset, navigate])
+
+  useEffect(() => {
+    fetchResults()
+  }, [fetchResults])
 
   function scrollToDashboard() {
     dashboardRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -369,7 +383,8 @@ export default function Results() {
     return (
       <ErrorView
         message={error ?? 'Something went wrong.'}
-        onRetry={() => navigate('/')}
+        onRetry={fetchResults}
+        onReupload={() => navigate('/')}
       />
     )
 
@@ -379,42 +394,15 @@ export default function Results() {
   const { metrics, insights, recurring_summary, transactions } = result
   const [startDate, endDate] = metrics.date_range
 
-  function fmtDate(d) {
-    if (!d) return ''
-    return new Date(d).toLocaleDateString('en-IN', {
-      day: '2-digit', month: 'short', year: 'numeric',
-    })
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
       {/* Top Navigation Bar */}
-      <header className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 sticky top-0 z-40 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
-              <span className="text-emerald-600">📊</span>
-              <span>AI Data Analysis Platform</span>
-            </span>
-            <span className="hidden md:inline text-xs font-bold text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 px-3 py-1 rounded-full border border-gray-200 dark:border-slate-700">
-              {fmtDate(startDate)} – {fmtDate(endDate)}
-            </span>
-            <span className="hidden sm:inline text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-              ⚡ Power BI Mode
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <button
-              onClick={() => navigate('/')}
-              className="text-xs px-3.5 py-2 border border-gray-300 dark:border-slate-700 rounded-xl text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors font-bold"
-            >
-              ← New Statement
-            </button>
-          </div>
-        </div>
-      </header>
+      <DashboardHeader
+        startDate={startDate}
+        endDate={endDate}
+        showPowerBiBadge={true}
+        onNewStatement={() => navigate('/')}
+      />
 
       {/* Sticky Quick-Navigation Bar */}
       <StickySectionNav />

@@ -6,12 +6,13 @@ Implemented fully in Phase 2.
 """
 
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.session.store import session_store
 from app.services.metrics import compute_metrics, build_category_summary
 from app.models.result import AnalysisResult
 from app.models.transaction import Transaction
+from app.routers.auth import current_user
 
 router = APIRouter(tags=["results"])
 
@@ -26,10 +27,11 @@ class CategoryOverrideRequest(BaseModel):
 
 
 @router.get("/results/{session_id}")
-async def get_results(session_id: str):
+def get_results(session_id: str, request: Request = None):
     """
     Retrieve analysis results for a previously uploaded statement.
     Returns 404 if the session does not exist or has expired.
+    Enforces user data isolation so users cannot view other users' statements.
     """
     data = session_store.get(session_id)
     if data is None:
@@ -37,17 +39,37 @@ async def get_results(session_id: str):
             status_code=404,
             detail="Session not found or expired. Please upload your statement again.",
         )
+    owner_id = data.get("owner_id")
+    if owner_id and request:
+        user = current_user(request)
+        if not user or (user.get("id") != owner_id and user.get("role") != "administrator"):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. You do not have permission to access this analysis session.",
+            )
     return data
 
 
 from datetime import datetime, timezone
 
 @router.post("/results/{session_id}/category-mapping")
-async def update_category_mapping(session_id: str, payload: CategoryOverrideRequest):
+async def update_category_mapping(session_id: str, payload: CategoryOverrideRequest, request: Request = None):
     """
     Update category for a specific transaction or all transactions for a counterparty.
     Recomputes metrics, category summary, preserves audit trail and maintains canonical consistency.
+    Enforces user data isolation.
     """
+    existing = session_store.get(session_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    owner_id = existing.get("owner_id")
+    if owner_id and request:
+        user = current_user(request)
+        if not user or (user.get("id") != owner_id and user.get("role") != "administrator"):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. You do not have permission to modify this analysis session.",
+            )
     target_cp = payload.counterparty or (payload.target_value if payload.target_type == "counterparty" else None)
     target_tid = payload.transaction_id or (payload.target_value if payload.target_type in ("transaction", "transaction_id") else None)
 

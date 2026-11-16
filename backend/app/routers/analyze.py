@@ -14,7 +14,7 @@ import io
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, Query
+from fastapi import APIRouter, File, HTTPException, UploadFile, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -24,6 +24,7 @@ from app.services.data_analyzer import analyze_data_quality, preview_cleaning, a
 from app.services.business_analytics import run_business_analysis, detect_dataset_type
 from app.services.ai_qa import answer_question
 from app.session.store import session_store
+from app.routers.auth import current_user
 
 import pandas as pd
 
@@ -55,12 +56,28 @@ class CleaningRequest(BaseModel):
 # POST /api/analyze — Universal file upload & analysis
 # ---------------------------------------------------------------------------
 
+def _check_session_access(data: dict, request: Request | None):
+    owner_id = data.get("owner_id")
+    if owner_id and request:
+        user = current_user(request)
+        if not user or (user.get("id") != owner_id and user.get("role") != "administrator"):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. You do not have permission to access this analysis session.",
+            )
+
+
 @router.post("/analyze")
-async def analyze_data(file: UploadFile = File(...)):
+async def analyze_data(file: UploadFile = File(...), request: Request = None):
     """
     Upload any data file for universal analysis.
     Auto-detects dataset type and runs appropriate analytics.
+    Enforces user data isolation by binding dataset to authenticated owner.
     """
+    user = current_user(request) if request else None
+    owner_id = user["id"] if user else None
+    owner_email = user["email"] if user else None
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided.")
 
@@ -99,9 +116,8 @@ async def analyze_data(file: UploadFile = File(...)):
         # Detect dataset type
         dataset_type = detect_dataset_type(df)
 
-        # If it's a financial dataset, redirect to the existing bank statement pipeline
+        # If it looks like a financial dataset, attempt the bank statement pipeline first
         if dataset_type == "financial":
-            # Use existing upload pipeline
             from app.services.ingestion import extract_transactions
             from app.services.cleaner import clean_transactions
             from app.services.categorizer import categorize_transactions
@@ -110,71 +126,82 @@ async def analyze_data(file: UploadFile = File(...)):
             from app.services.insight_generator import generate_insights
             from app.models.result import AnalysisResult
 
+            raw_rows = []
             try:
                 raw_rows = extract_transactions(file_bytes, filename)
-            except ValueError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except Exception as exc:
+                log.info("Could not extract file as standard bank statement: %s; falling back to universal analysis.", exc)
 
-            if not raw_rows:
-                raise HTTPException(status_code=422, detail="No transaction rows could be extracted.")
+            transactions = []
+            parse_warnings = []
+            if raw_rows:
+                try:
+                    transactions, parse_warnings = clean_transactions(raw_rows)
+                except Exception as exc:
+                    log.info("Could not clean rows as standard bank transactions: %s; falling back to universal analysis.", exc)
 
-            transactions, parse_warnings = clean_transactions(raw_rows)
-            if not transactions:
-                raise HTTPException(status_code=422, detail="No valid transactions could be parsed.")
+            if transactions:
+                transactions, categorizer_used_llm = categorize_transactions(transactions)
+                transactions, recurring_summary = detect_recurring(transactions)
+                metrics = compute_metrics(transactions)
+                category_summary = build_category_summary(transactions)
 
-            transactions, categorizer_used_llm = categorize_transactions(transactions)
-            transactions, recurring_summary = detect_recurring(transactions)
-            metrics = compute_metrics(transactions)
-            category_summary = build_category_summary(transactions)
+                if categorizer_used_llm and settings.ai_enabled:
+                    import asyncio
+                    await asyncio.sleep(5)
 
-            if categorizer_used_llm and settings.ai_enabled:
-                import asyncio
-                await asyncio.sleep(5)
+                try:
+                    insights, insights_source = generate_insights(metrics, category_summary, recurring_summary)
+                except Exception:
+                    insights, insights_source = [], "fallback"
 
-            try:
-                insights, insights_source = generate_insights(metrics, category_summary, recurring_summary)
-            except Exception:
-                insights, insights_source = [], "fallback"
+                result = AnalysisResult(
+                    session_id=session_id,
+                    transactions=transactions,
+                    metrics=metrics,
+                    insights=insights,
+                    category_summary=category_summary,
+                    recurring_summary=recurring_summary,
+                    ai_enabled=settings.ai_enabled,
+                    insights_source=insights_source,
+                    parse_warnings=parse_warnings,
+                    generated_at=datetime.now(timezone.utc),
+                )
 
-            result = AnalysisResult(
-                session_id=session_id,
-                transactions=transactions,
-                metrics=metrics,
-                insights=insights,
-                category_summary=category_summary,
-                recurring_summary=recurring_summary,
-                ai_enabled=settings.ai_enabled,
-                insights_source=insights_source,
-                parse_warnings=parse_warnings,
-                generated_at=datetime.now(timezone.utc),
-            )
+                # Store both the analysis result and the raw DataFrame for Q&A
+                fin_payload = {
+                    "analysis_type": "financial",
+                    "financial_result": result.model_dump(mode="json"),
+                    "dataset_type": "financial",
+                    "data_quality": analyze_data_quality(df),
+                    "raw_data": _to_records(df),
+                    "columns": list(df.columns),
+                    "row_count": len(df),
+                }
+                if owner_id:
+                    fin_payload["owner_id"] = owner_id
+                    fin_payload["owner_email"] = owner_email
+                session_store.set(session_id, fin_payload)
 
-            # Store both the analysis result and the raw DataFrame for Q&A
-            session_store.set(session_id, {
-                "analysis_type": "financial",
-                "financial_result": result.model_dump(mode="json"),
-                "dataset_type": "financial",
-                "data_quality": analyze_data_quality(df),
-                "raw_data": _to_records(df),
-                "columns": list(df.columns),
-                "row_count": len(df),
-            })
+                return {
+                    "session_id": session_id,
+                    "status": "complete",
+                    "analysis_type": "financial",
+                    "dataset_type": "financial",
+                    "row_count": len(transactions),
+                    "message": f"Financial analysis complete. {len(transactions)} transactions processed.",
+                }
 
-            return {
-                "session_id": session_id,
-                "status": "complete",
-                "analysis_type": "financial",
-                "dataset_type": "financial",
-                "row_count": len(transactions),
-                "message": f"Financial analysis complete. {len(transactions)} transactions processed.",
-            }
+            # If no bank statement transactions could be formed, fall back to universal dataset analysis
+            log.info("Financial format did not yield standard bank transactions; proceeding with universal business analytics.")
+            dataset_type = "general"
 
         # Universal analysis for non-financial data
         data_quality = analyze_data_quality(df)
         business_analysis = run_business_analysis(df, dataset_type)
 
         # Store results
-        session_store.set(session_id, {
+        univ_payload = {
             "analysis_type": "universal",
             "dataset_type": dataset_type,
             "data_quality": data_quality,
@@ -184,7 +211,11 @@ async def analyze_data(file: UploadFile = File(...)):
             "row_count": len(df),
             "filename": filename,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-        })
+        }
+        if owner_id:
+            univ_payload["owner_id"] = owner_id
+            univ_payload["owner_email"] = owner_email
+        session_store.set(session_id, univ_payload)
 
         return {
             "session_id": session_id,
@@ -213,11 +244,12 @@ async def analyze_data(file: UploadFile = File(...)):
 # ---------------------------------------------------------------------------
 
 @router.get("/analysis/{session_id}")
-async def get_analysis(session_id: str):
+async def get_analysis(session_id: str, request: Request = None):
     """Retrieve universal analysis results."""
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
 
     # For financial datasets, return the financial result format
     if data.get("analysis_type") == "financial":
@@ -246,13 +278,14 @@ async def get_analysis(session_id: str):
 # ---------------------------------------------------------------------------
 
 @router.post("/analysis/{session_id}/qa")
-async def ask_question_endpoint(session_id: str, request: QuestionRequest):
+async def ask_question_endpoint(session_id: str, payload: QuestionRequest, request: Request = None):
     """Ask a natural-language question about the uploaded data."""
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
 
-    if not request.question.strip():
+    if not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     raw_data = data.get("raw_data", [])
@@ -261,7 +294,7 @@ async def ask_question_endpoint(session_id: str, request: QuestionRequest):
     analysis = data.get("business_analysis") or data.get("financial_result") or {}
 
     try:
-        result = answer_question(request.question, df, analysis)
+        result = answer_question(payload.question, df, analysis)
         return result
     except Exception as exc:
         log.exception("Q&A failed")
@@ -273,19 +306,20 @@ async def ask_question_endpoint(session_id: str, request: QuestionRequest):
 # ---------------------------------------------------------------------------
 
 @router.post("/analysis/{session_id}/clean")
-async def clean_data_endpoint(session_id: str, request: CleaningRequest):
+async def clean_data_endpoint(session_id: str, payload: CleaningRequest, request: Request = None):
     """Preview or apply cleaning operations on the data."""
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
 
     raw_data = data.get("raw_data", [])
     df = pd.DataFrame(raw_data)
 
-    if request.apply:
+    if payload.apply:
         def apply_update(current):
             current_df = pd.DataFrame(current.get("raw_data", []))
-            cleaned = apply_cleaning(current_df, request.operations)
+            cleaned = apply_cleaning(current_df, payload.operations)
             quality = analyze_data_quality(cleaned)
             business = run_business_analysis(cleaned, current.get("dataset_type"))
             current.setdefault("original_data", current.get("raw_data", []))
@@ -308,7 +342,7 @@ async def clean_data_endpoint(session_id: str, request: CleaningRequest):
             raise HTTPException(status_code=404, detail="Session not found or expired.")
     else:
         # Preview only
-        preview = preview_cleaning(df, request.operations)
+        preview = preview_cleaning(df, payload.operations)
         return {"status": "preview", **preview}
 
 
@@ -317,8 +351,13 @@ async def clean_data_endpoint(session_id: str, request: CleaningRequest):
 # ---------------------------------------------------------------------------
 
 @router.post("/analysis/{session_id}/undo")
-async def undo_cleaning(session_id: str):
+async def undo_cleaning(session_id: str, request: Request = None):
     """Undo the last cleaning operation and restore original data."""
+    data = session_store.get(session_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
+
     def restore(current):
         original = current.get("original_data")
         if original is None:
@@ -347,11 +386,13 @@ async def undo_cleaning(session_id: str):
 async def download_data(
     session_id: str,
     format: str = Query(default="csv", pattern="^(csv|xlsx)$"),
+    request: Request = None,
 ):
     """Download the (optionally cleaned) data as CSV or Excel."""
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
 
     raw_data = data.get("raw_data", [])
     df = pd.DataFrame(raw_data)

@@ -50,6 +50,8 @@ def _security_headers(response, request: Request):
 @app.middleware("http")
 async def protect_api(request: Request, call_next):
     """Require a live cookie session on every application API except auth endpoints."""
+    if request.method == "OPTIONS":
+        return await call_next(request)
     path = request.url.path
     if os.getenv("AUTH_REQUIRED", "true").lower() not in {"0", "false", "no"} and path.startswith("/api/") and not path.startswith("/api/auth/"):
         from app.routers.auth import current_user
@@ -59,7 +61,7 @@ async def protect_api(request: Request, call_next):
             user = None
         if not user:
             return _security_headers(JSONResponse({"detail": "Sign in required."}, status_code=401), request)
-        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        if request.method not in {"GET", "HEAD"}:
             from app.routers.auth import require_csrf_for_mutation
             try:
                 require_csrf_for_mutation(request)
@@ -77,7 +79,13 @@ async def protect_api(request: Request, call_next):
 # EXTRA_CORS_ORIGINS can hold a comma-separated list of additional origins
 # (useful for staging / preview URLs) e.g. "https://preview.example.com"
 # ---------------------------------------------------------------------------
-_cors_origins: list[str] = [settings.FRONTEND_ORIGIN]
+_cors_origins: list[str] = [
+    settings.FRONTEND_ORIGIN,
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+]
 _extra = os.getenv("EXTRA_CORS_ORIGINS", "")
 if _extra:
     _cors_origins.extend(o.strip() for o in _extra.split(",") if o.strip())
@@ -101,16 +109,42 @@ app.include_router(auth.router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------
-# Health check
+# Root and Health check
 # ---------------------------------------------------------------------------
-@app.get("/health", tags=["health"])
-async def health_check():
-    """Simple liveness probe — returns ok if the server is running."""
+@app.get("/", tags=["root"])
+async def root():
+    """Root endpoint providing service metadata, system status, and links to documentation."""
+    from app.session.store import check_database_health
     return {
-        "status": "ok",
+        "name": "AI Data Analysis Platform API",
+        "version": "1.0.0",
+        "status": "operational",
+        "documentation": "/docs",
+        "health": "/health",
+        "api_prefix": "/api",
+        "ai_enabled": settings.ai_enabled,
+        "database": check_database_health(),
+    }
+
+
+@app.get("/health", tags=["health"])
+@app.get("/api/health", tags=["health"])
+async def health_check():
+    """Liveness probe — returns status, AI status, and database connectivity."""
+    from app.session.store import check_database_health
+    db = check_database_health()
+    status = "ok"
+    status_code = 200
+    require_mongo = os.getenv("REQUIRE_MONGODB", "").strip().lower() in ("true", "1", "yes") or os.getenv("ENV", "").strip().lower() in ("production", "prod")
+    if (db.get("configured") and not db.get("connected")) or (require_mongo and not db.get("connected")):
+        status = "degraded"
+        status_code = 503
+    return JSONResponse({
+        "status": status,
         "ai_enabled": settings.ai_enabled,
         "model": settings.GROQ_MODEL if settings.ai_enabled else None,
-    }
+        "database": db,
+    }, status_code=status_code)
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
-"""Atomic JSON session storage with thread and process locking.
+"""Session storage adapter supporting both MongoDB Atlas and atomic local files.
 
-This remains a local file store; it is not a MongoDB adapter. Updates that
-combine a read and write should use ``update`` so the whole operation is locked.
+When MONGODB_URI is configured, sessions and application metadata are persisted
+in MongoDB Atlas. Otherwise, atomic file storage with thread and process locks
+is used for zero-dependency local development.
 """
-
 from __future__ import annotations
 
 import glob
@@ -31,7 +31,35 @@ def _thread_lock(session_id: str) -> threading.RLock:
         return _thread_locks.setdefault(session_id, threading.RLock())
 
 
-class SessionStore:
+def check_database_health() -> dict[str, Any]:
+    """Report storage health (MongoDB Atlas or persistent filesystem)."""
+    mongo_uri = os.getenv("MONGODB_URI", "").strip()
+    require_mongo = os.getenv("REQUIRE_MONGODB", "").strip().lower() in ("true", "1", "yes") or (
+        os.getenv("ENV", "").strip().lower() == "production"
+        and os.getenv("REQUIRE_MONGODB", "true").strip().lower() not in ("false", "0", "no")
+    )
+    if mongo_uri:
+        from app.session.mongo_store import check_mongo_connection
+        res = check_mongo_connection()
+        res["type"] = "mongodb"
+        return res
+    if require_mongo:
+        return {
+            "configured": False,
+            "connected": False,
+            "type": "mongodb",
+            "detail": "MONGODB_URI is required in production environment but not configured.",
+        }
+    return {
+        "configured": True,
+        "type": "filesystem",
+        "data_dir": os.path.abspath(DATA_DIR),
+        "connected": os.path.exists(DATA_DIR) and os.access(DATA_DIR, os.W_OK),
+        "detail": "Using local persistent filesystem storage",
+    }
+
+
+class FileSessionStore:
     """Persist sessions with atomic replace and cross-process per-session locks."""
 
     def __init__(self, ttl_minutes: int = settings.SESSION_TTL_MINUTES, data_dir: str | None = None):
@@ -100,8 +128,6 @@ class SessionStore:
                 os.close(fd)
             except OSError:
                 pass
-            # Leave a complete temp file for startup recovery; remove only an
-            # incomplete file when serialization itself failed.
             raise
 
     def _read_disk(self, session_id: str) -> Optional[dict]:
@@ -112,8 +138,6 @@ class SessionStore:
         except FileNotFoundError:
             pass
         except (json.JSONDecodeError, UnicodeDecodeError):
-            # A crash during replacement should leave the old file intact. If
-            # it is damaged, recover only a complete, validated temp document.
             pass
 
         candidates = sorted(glob.glob(path + ".*.tmp"), key=os.path.getmtime, reverse=True)
@@ -181,7 +205,10 @@ class SessionStore:
             payload = self._read_disk(session_id)
             if payload is not None:
                 if time.time() > float(payload.get("expires_at", 0)):
-                    os.remove(self._file_path(session_id))
+                    try:
+                        os.remove(self._file_path(session_id))
+                    except OSError:
+                        pass
                     self._store.pop(session_id, None)
                     return None
                 data = payload.get("data")
@@ -201,7 +228,10 @@ class SessionStore:
             self._store.pop(session_id, None)
             path = self._file_path(session_id)
             if os.path.exists(path):
-                os.remove(path)
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
             for candidate in glob.glob(path + ".*.tmp") + [path + ".tmp"]:
                 try:
                     os.remove(candidate)
@@ -213,10 +243,64 @@ class SessionStore:
         for sid in [key for key, value in self._store.items() if now > value["expires_at"]]:
             self._store.pop(sid, None)
 
+    def prune_expired(self) -> int:
+        """Evict both in-memory and on-disk expired session files and stale locks."""
+        self._evict_expired()
+        count = 0
+        now = time.time()
+        for path in glob.glob(os.path.join(self._data_dir, "*.json")):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                if now > float(payload.get("expires_at", 0)):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                    lock_path = path + ".lock"
+                    if os.path.exists(lock_path):
+                        try:
+                            os.remove(lock_path)
+                        except OSError:
+                            pass
+                    count += 1
+            except Exception:
+                continue
+        return count
+
     @property
     def active_count(self) -> int:
         self._evict_expired()
         return len(self._store)
+
+
+class SessionStore:
+    """Factory that instantiates MongoSessionStore when MONGODB_URI is provided, or FileSessionStore otherwise."""
+
+    def __new__(
+        cls,
+        ttl_minutes: int = settings.SESSION_TTL_MINUTES,
+        data_dir: str | None = None,
+        collection_name: str = "sessions",
+    ):
+        mongo_uri = os.getenv("MONGODB_URI", "").strip()
+        require_mongo = os.getenv("REQUIRE_MONGODB", "").strip().lower() in ("true", "1", "yes") or (
+            os.getenv("ENV", "").strip().lower() == "production"
+            and os.getenv("REQUIRE_MONGODB", "true").strip().lower() not in ("false", "0", "no")
+        )
+        if mongo_uri:
+            from app.session.mongo_store import MongoSessionStore
+            return MongoSessionStore(
+                ttl_minutes=ttl_minutes,
+                collection_name=collection_name,
+                uri=mongo_uri,
+            )
+        if require_mongo:
+            raise RuntimeError(
+                "Production requires MongoDB Atlas persistent storage, but MONGODB_URI is not set. "
+                "Silent fallback to ephemeral local filesystem storage is disabled."
+            )
+        return FileSessionStore(ttl_minutes=ttl_minutes, data_dir=data_dir)
 
 
 session_store = SessionStore()

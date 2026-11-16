@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
+export const API_BASE_URL = (typeof window !== 'undefined' && (window.location.hostname.endsWith('vercel.app') || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+  ? '/api'
+  : (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 let csrfToken = ''
 
 const api = axios.create({
@@ -10,18 +12,42 @@ const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
-  const csrf = csrfToken || document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))?.split('=').slice(1).join('=')
-  if (csrf) config.headers['X-CSRF-Token'] = decodeURIComponent(csrf)
+  const method = (config.method || 'get').toUpperCase()
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    const cookiePart = document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))
+    const csrf = cookiePart ? decodeURIComponent(cookiePart.split('=').slice(1).join('=')) : csrfToken
+    if (csrf) config.headers['X-CSRF-Token'] = csrf
+  }
   return config
 })
 
-api.interceptors.response.use((response) => {
-  if (response.config.url?.endsWith('/auth/csrf') && response.data?.csrf_token) csrfToken = response.data.csrf_token
-  return response
-})
+api.interceptors.response.use(
+  (response) => {
+    if (response.config.url?.endsWith('/auth/csrf') && response.data?.csrf_token) csrfToken = response.data.csrf_token
+    return response
+  },
+  async (error) => {
+    const config = error.config
+    if (!config) return Promise.reject(error)
+
+    const isGet = (config.method || 'get').toUpperCase() === 'GET'
+    const status = error.response?.status
+    const isTransient = [502, 503, 504].includes(status) || error.code === 'ECONNABORTED'
+
+    config.__retryCount = config.__retryCount || 0
+    if (isGet && isTransient && config.__retryCount < 2) {
+      config.__retryCount += 1
+      await new Promise((res) => setTimeout(res, 3000))
+      return api(config)
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 export function getCsrfToken() {
-  return csrfToken || decodeURIComponent(document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))?.split('=').slice(1).join('=') || '')
+  const cookiePart = document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))
+  return cookiePart ? decodeURIComponent(cookiePart.split('=').slice(1).join('=')) : csrfToken
 }
 
 export function apiUrl(path) {
