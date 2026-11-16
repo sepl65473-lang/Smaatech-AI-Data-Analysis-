@@ -141,7 +141,7 @@ class FileSessionStore:
             pass
 
         candidates = sorted(glob.glob(path + ".*.tmp"), key=os.path.getmtime, reverse=True)
-        candidates += [path + ".tmp"]
+        candidates += [path + ".tmp"]  # legacy temp name
         for candidate in candidates:
             try:
                 with open(candidate, "r", encoding="utf-8") as stream:
@@ -205,7 +205,10 @@ class FileSessionStore:
             payload = self._read_disk(session_id)
             if payload is not None:
                 if time.time() > float(payload.get("expires_at", 0)):
-                    os.remove(self._file_path(session_id))
+                    try:
+                        os.remove(self._file_path(session_id))
+                    except OSError:
+                        pass
                     self._store.pop(session_id, None)
                     return None
                 data = payload.get("data")
@@ -225,7 +228,10 @@ class FileSessionStore:
             self._store.pop(session_id, None)
             path = self._file_path(session_id)
             if os.path.exists(path):
-                os.remove(path)
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
             for candidate in glob.glob(path + ".*.tmp") + [path + ".tmp"]:
                 try:
                     os.remove(candidate)
@@ -247,7 +253,10 @@ class FileSessionStore:
                 with open(path, "r", encoding="utf-8") as f:
                     payload = json.load(f)
                 if now > float(payload.get("expires_at", 0)):
-                    os.remove(path)
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
                     lock_path = path + ".lock"
                     if os.path.exists(lock_path):
                         try:

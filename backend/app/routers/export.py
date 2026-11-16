@@ -18,7 +18,7 @@ import logging
 import zipfile
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.services.deliverables.dataset import build_report_dataset, DatasetVerificationError
@@ -27,18 +27,27 @@ from app.services.deliverables.excel_report import build_xlsx, build_preview
 from app.services.deliverables.html_dashboard import build_html_dashboard
 from app.services.report_builder import build_csv_report
 from app.session.store import session_store
+from app.routers.auth import current_user
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["export"])
 
 
-def _get_dataset(session_id: str) -> dict:
+def _get_dataset(session_id: str, request: Request = None) -> dict:
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(
             status_code=404,
             detail="Session not found or expired. Please upload your statement again.",
         )
+    owner_id = data.get("owner_id")
+    if owner_id and request:
+        user = current_user(request)
+        if not user or (user.get("id") != owner_id and user.get("role") != "administrator"):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. You do not have permission to access or export this analysis session.",
+            )
     # If session is from generic data analysis track, use financial_result if present
     analysis_dict = data.get("financial_result") if data.get("analysis_type") == "financial" else data
     try:
@@ -52,11 +61,11 @@ def _get_dataset(session_id: str) -> dict:
 
 
 @router.get("/export/{session_id}/status")
-def get_export_status(session_id: str):
+def get_export_status(session_id: str, request: Request = None):
     """
     Check deliverable readiness and return metadata and canonical filenames.
     """
-    ds = _get_dataset(session_id)
+    ds = _get_dataset(session_id, request=request)
     meta = ds.get("meta", {})
     kpis = ds.get("kpis", {})
     period_key = meta.get("period_key", "statement")
@@ -88,6 +97,7 @@ def export_report(
     session_id: str,
     format: str = Query(default="pdf", pattern="^(pdf|xlsx|html|zip|csv)$"),
     preview: bool = Query(default=False),
+    request: Request = None,
 ):
     """
     Download or preview validated deliverables:
@@ -97,7 +107,7 @@ def export_report(
       - format=zip   : Complete Report Package (PDF + Excel + HTML)
       - format=csv   : Flat transaction export
     """
-    ds = _get_dataset(session_id)
+    ds = _get_dataset(session_id, request=request)
     meta = ds.get("meta", {})
     period_key = meta.get("period_key", "statement")
 

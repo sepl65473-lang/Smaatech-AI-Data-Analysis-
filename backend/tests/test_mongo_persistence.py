@@ -1,7 +1,10 @@
 import copy
 import os
+import secrets
+import shutil
 import time
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 import mongomock
 import pytest
 from starlette.testclient import TestClient
@@ -113,13 +116,18 @@ def test_require_mongodb_prevents_silent_fallback(monkeypatch):
     assert health["type"] == "mongodb"
 
 
-def test_local_dev_fallback_without_require_mongo(monkeypatch, tmp_path):
+def test_local_dev_fallback_without_require_mongo(monkeypatch):
     monkeypatch.delenv("REQUIRE_MONGODB", raising=False)
     monkeypatch.delenv("MONGODB_URI", raising=False)
     monkeypatch.setenv("ENV", "development")
 
-    store = SessionStore(ttl_minutes=10, data_dir=str(tmp_path))
-    assert isinstance(store, FileSessionStore)
+    test_data = Path(__file__).resolve().parents[2] / "scratch" / "pytest-mongo-fallback" / secrets.token_hex(8)
+    test_data.mkdir(parents=True, exist_ok=False)
+    try:
+        store = SessionStore(ttl_minutes=10, data_dir=str(test_data))
+        assert isinstance(store, FileSessionStore)
+    finally:
+        shutil.rmtree(test_data, ignore_errors=True)
 
 
 def test_health_endpoint_reports_degraded_when_mongodb_required_but_missing(monkeypatch):
@@ -131,3 +139,4 @@ def test_health_endpoint_reports_degraded_when_mongodb_required_but_missing(monk
     payload = res.json()
     assert payload["status"] == "degraded"
     assert payload["database"]["connected"] is False
+

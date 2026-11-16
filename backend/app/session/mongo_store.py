@@ -149,32 +149,45 @@ class MongoSessionStore:
             upsert=True,
         )
 
-    def update(self, session_id: str, updater: Callable[[dict], Any]) -> tuple[dict, Any]:
-        """Atomically read the document, mutate it, and persist it."""
+    def update(self, session_id: str, updater: Callable[[dict], Any], max_retries: int = 5) -> tuple[dict, Any]:
+        """Atomically read the document, mutate it, and persist it with optimistic concurrency control."""
         col = self._get_collection()
-        doc = col.find_one({"_id": session_id})
-        if doc is None:
-            raise KeyError(session_id)
-        if self._is_expired(doc):
-            col.delete_one({"_id": session_id})
-            raise KeyError(session_id)
+        for attempt in range(max_retries):
+            doc = col.find_one({"_id": session_id})
+            if doc is None:
+                raise KeyError(session_id)
+            if self._is_expired(doc):
+                col.delete_one({"_id": session_id})
+                raise KeyError(session_id)
 
-        data = doc.get("data")
-        if data is None:
-            data = {}
-        result = updater(data)
-        serialized = self._serialize(data)
-        now_dt = datetime.now(timezone.utc)
-        expires_at = self._make_expiry()
-        col.update_one(
-            {"_id": session_id},
-            {"$set": {
-                "data": serialized,
-                "expires_at": expires_at,
-                "updated_at": now_dt,
-            }},
-        )
-        return copy.deepcopy(data), result
+            data = doc.get("data")
+            if data is None:
+                data = {}
+            result = updater(data)
+            serialized = self._serialize(data)
+            now_dt = datetime.now(timezone.utc)
+            expires_at = self._make_expiry()
+
+            # Optimistic concurrency check on updated_at
+            last_updated_at = doc.get("updated_at")
+            query: dict[str, Any] = {"_id": session_id}
+            if last_updated_at is not None:
+                query["updated_at"] = last_updated_at
+
+            update_res = col.update_one(
+                query,
+                {"$set": {
+                    "data": serialized,
+                    "expires_at": expires_at,
+                    "updated_at": now_dt,
+                }},
+            )
+            if update_res.matched_count > 0:
+                return copy.deepcopy(data), result
+            # Contention detected; backoff slightly and retry with latest snapshot
+            time.sleep(0.02 * (attempt + 1))
+
+        raise RuntimeError(f"Concurrent update contention on {session_id} exceeded {max_retries} attempts.")
 
     def get(self, session_id: str) -> Optional[Any]:
         col = self._get_collection()
@@ -218,3 +231,4 @@ class MongoSessionStore:
         col = self._get_collection()
         now_dt = datetime.now(timezone.utc)
         return col.count_documents({"expires_at": {"$gt": now_dt}})
+

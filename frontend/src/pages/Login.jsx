@@ -76,6 +76,18 @@ function Icon({ name, size = 20, className = '' }) {
         <circle cx="15.5" cy="8.5" r=".5" fill="currentColor" />
       </>
     ),
+    checkCircle: (
+      <>
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+        <polyline points="22 4 12 14.01 9 11.01" />
+      </>
+    ),
+    trendingUp: (
+      <>
+        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+        <polyline points="17 6 23 6 23 12" />
+      </>
+    ),
   }
   return (
     <svg
@@ -225,50 +237,137 @@ export default function Login() {
           <div className="showcase-content">
             <div className="showcase-badge">
               <span className="badge-pulse" />
-              <span>Enterprise Intelligence</span>
+              <span>Enterprise Financial Intelligence</span>
             </div>
             <h1 className="showcase-title">
-              AI Data Analysis
-              <span className="title-accent">Platform</span>
+              Financial Audit &
+              <span className="title-accent">Intelligence Platform</span>
             </h1>
             <p className="showcase-desc">
-              Transform raw multi-format financial & business datasets into actionable intelligence with bank-grade security and automated reconciliation.
+              Transform complex bank statements into verified audit deliverables with automated zero-delta reconciliation and intelligent classification.
             </p>
 
             <div className="feature-grid">
               <div className="feature-pill">
-                <div className="feature-icon"><Icon name="chart" size={19} /></div>
+                <div className="feature-icon"><Icon name="chart" size={18} /></div>
                 <div className="feature-meta">
-                  <strong>Advanced Analytics</strong>
-                  <small>Continuous audit & delta proof</small>
+                  <strong>Zero-Delta Audit</strong>
+                  <small>Automated mathematical proof</small>
                 </div>
               </div>
               <div className="feature-pill">
-                <div className="feature-icon"><Icon name="chip" size={19} /></div>
+                <div className="feature-icon"><Icon name="chip" size={18} /></div>
                 <div className="feature-meta">
-                  <strong>AI Insights</strong>
-                  <small>Automated categorization</small>
+                  <strong>Smart Classification</strong>
+                  <small>Rule-based & AI classification</small>
                 </div>
               </div>
               <div className="feature-pill">
-                <div className="feature-icon"><Icon name="shield" size={19} /></div>
+                <div className="feature-icon"><Icon name="shield" size={18} /></div>
                 <div className="feature-meta">
                   <strong>Enterprise Security</strong>
-                  <small>Encrypted session protection</small>
+                  <small>Signed sessions & CSRF tokens</small>
                 </div>
               </div>
               <div className="feature-pill">
-                <div className="feature-icon"><Icon name="bolt" size={19} /></div>
+                <div className="feature-icon"><Icon name="bolt" size={18} /></div>
                 <div className="feature-meta">
-                  <strong>Real-Time Exports</strong>
-                  <small>Excel, PDF & Dashboards</small>
+                  <strong>Instant Deliverables</strong>
+                  <small>Excel, PDF, CSV, HTML & ZIP</small>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="showcase-art-container" aria-hidden="true">
-            <img className="analytics-art" src="/sepl-login-art.png" alt="" />
+          {/* Integrated Financial Analytics Visual — Vector & Benchmark Dashboard */}
+          <div className="financial-visual-board" aria-label="Financial analytics benchmark preview">
+            <div className="visual-board-glass">
+              <div className="board-top-row">
+                <div className="board-status-badge">
+                  <span className="board-live-dot" />
+                  <span>Verified Audit Benchmark</span>
+                </div>
+                <span className="board-period-tag">Axis Bank • June 2023</span>
+              </div>
+
+              <div className="board-metrics-row">
+                <div className="board-metric-card">
+                  <span className="metric-label">Total Inflow</span>
+                  <div className="metric-value-wrap">
+                    <strong className="metric-val inflow">₹45,48,780</strong>
+                    <span className="trend-badge inflow"><Icon name="trendingUp" size={11} /> 9 Credits</span>
+                  </div>
+                </div>
+                <div className="board-metric-card">
+                  <span className="metric-label">Total Outflow</span>
+                  <div className="metric-value-wrap">
+                    <strong className="metric-val outflow">₹46,26,410</strong>
+                    <span className="trend-badge outflow">153 Debits</span>
+                  </div>
+                </div>
+                <div className="board-metric-card highlight">
+                  <span className="metric-label">Reconciliation Delta</span>
+                  <div className="metric-value-wrap">
+                    <strong className="metric-val reconciled">Δ = ₹0.00</strong>
+                    <span className="reconciled-badge">BALANCED</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="board-chart-container" aria-hidden="true">
+                <svg className="board-chart-svg" viewBox="0 0 420 85" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#2563eb" stopOpacity="0.22" />
+                      <stop offset="100%" stopColor="#2563eb" stopOpacity="0.0" />
+                    </linearGradient>
+                    <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#3b82f6" />
+                      <stop offset="55%" stopColor="#2563eb" />
+                      <stop offset="100%" stopColor="#0284c7" />
+                    </linearGradient>
+                  </defs>
+                  {/* Subtle Grid Guidelines */}
+                  <line x1="0" y1="18" x2="420" y2="18" stroke="rgba(203, 213, 225, 0.45)" strokeDasharray="3 3" />
+                  <line x1="0" y1="46" x2="420" y2="46" stroke="rgba(203, 213, 225, 0.45)" strokeDasharray="3 3" />
+                  <line x1="0" y1="74" x2="420" y2="74" stroke="rgba(203, 213, 225, 0.45)" strokeDasharray="3 3" />
+
+                  {/* Shaded Area Fill */}
+                  <path
+                    d="M 0 68 Q 65 52, 115 58 T 215 32 T 315 42 T 420 18 L 420 85 L 0 85 Z"
+                    fill="url(#chartGradient)"
+                  />
+                  {/* Smooth Trend Curve */}
+                  <path
+                    d="M 0 68 Q 65 52, 115 58 T 215 32 T 315 42 T 420 18"
+                    fill="none"
+                    stroke="url(#lineGradient)"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                  {/* Visual Data Points */}
+                  <circle cx="115" cy="58" r="3.5" fill="#ffffff" stroke="#2563eb" strokeWidth="2" />
+                  <circle cx="215" cy="32" r="3.5" fill="#ffffff" stroke="#2563eb" strokeWidth="2" />
+                  <circle cx="315" cy="42" r="3.5" fill="#ffffff" stroke="#2563eb" strokeWidth="2" />
+                  <circle cx="420" cy="18" r="4" fill="#2563eb" stroke="#ffffff" strokeWidth="2" />
+                </svg>
+              </div>
+
+              <div className="board-bottom-row">
+                <div className="board-stat">
+                  <Icon name="checkCircle" size={13} className="stat-icon-green" />
+                  <span>162 Transactions Audited</span>
+                </div>
+                <div className="board-stat">
+                  <Icon name="shield" size={13} className="stat-icon-blue" />
+                  <span>CSRF & Session Protected</span>
+                </div>
+                <div className="board-stat">
+                  <Icon name="chart" size={13} className="stat-icon-cyan" />
+                  <span>Zero-Delta Reconciled</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -281,7 +380,7 @@ export default function Login() {
           </div>
           <div className="mobile-brand-meta">
             <strong>SEPL</strong>
-            <small>AI Data Analysis</small>
+            <small>AI Data Analysis Platform</small>
           </div>
         </div>
 
@@ -307,6 +406,7 @@ export default function Login() {
                     onChange={e => setIdentity(e.target.value)}
                     placeholder="name@company.com"
                     spellCheck={false}
+                    disabled={busy || lockSeconds > 0}
                   />
                 </div>
               </div>
@@ -318,6 +418,7 @@ export default function Login() {
                     type="button"
                     className="text-action forgot-link"
                     onClick={() => { setError(''); setRecoveryStep(1) }}
+                    disabled={busy}
                   >
                     Forgot Password?
                   </button>
@@ -331,12 +432,14 @@ export default function Login() {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder="Enter password"
+                    disabled={busy || lockSeconds > 0}
                   />
                   <button
                     type="button"
                     className="password-toggle"
                     aria-label={visible ? 'Hide password' : 'Show password'}
                     onClick={() => setVisible(v => !v)}
+                    disabled={busy || lockSeconds > 0}
                   >
                     <Icon name={visible ? 'eyeOff' : 'eye'} size={18} />
                   </button>
@@ -349,6 +452,7 @@ export default function Login() {
                     type="checkbox"
                     checked={remember}
                     onChange={e => setRemember(e.target.checked)}
+                    disabled={busy || lockSeconds > 0}
                   />
                   <span>Remember Me</span>
                 </label>
@@ -369,19 +473,24 @@ export default function Login() {
               </div>
             )}
 
-            <button className="login-submit" disabled={busy || lockSeconds > 0} type="submit">
+            <button
+              className="login-submit"
+              disabled={busy || lockSeconds > 0}
+              type="submit"
+              aria-label="Login"
+            >
               {busy ? (
                 <span className="login-spinner" />
               ) : (
                 <Icon name="login" size={20} />
               )}
-              <span>{busy ? 'Signing in…' : lockSeconds > 0 ? 'Please wait' : 'Login'}</span>
+              <span>{busy ? 'Signing in…' : lockSeconds > 0 ? 'Please wait' : 'Sign In'}</span>
             </button>
 
             <footer className="card-footer">
               <div className="card-divider" />
               <div className="powered-by">
-                Powered by <strong>SEPL</strong>
+                Powered by <strong>SEPL</strong> • Enterprise Financial Intelligence
               </div>
             </footer>
           </form>
@@ -415,6 +524,7 @@ export default function Login() {
                       value={recoveryEmail}
                       onChange={e => setRecoveryEmail(e.target.value)}
                       placeholder="Registered email"
+                      disabled={busy}
                     />
                   </div>
                 </div>
@@ -427,7 +537,7 @@ export default function Login() {
                     <button
                       type="button"
                       className="text-action"
-                      disabled={countdown > 0}
+                      disabled={countdown > 0 || busy}
                       onClick={requestRecovery}
                     >
                       {countdown > 0 ? `Resend in ${countdown}s` : 'Resend code'}
@@ -444,6 +554,7 @@ export default function Login() {
                       onChange={e => setOtp(e.target.value)}
                       placeholder="6-digit verification code"
                       className="otp-input"
+                      disabled={busy}
                     />
                   </div>
                 </div>
@@ -464,6 +575,7 @@ export default function Login() {
                         value={newPassword}
                         onChange={e => setNewPassword(e.target.value)}
                         placeholder="New password (12+ characters)"
+                        disabled={busy}
                       />
                     </div>
                   </div>
@@ -478,6 +590,7 @@ export default function Login() {
                         name="confirmPassword"
                         autoComplete="new-password"
                         placeholder="Confirm new password"
+                        disabled={busy}
                       />
                     </div>
                   </div>
@@ -496,6 +609,7 @@ export default function Login() {
               className="login-submit"
               disabled={busy || (!countdown && recoveryStep === 2 && otp.length !== 6)}
               type="submit"
+              aria-label={recoveryStep === 1 ? 'Send recovery code' : recoveryStep === 2 ? 'Verify code' : 'Reset password'}
             >
               {busy ? (
                 <span className="login-spinner" />
@@ -517,6 +631,8 @@ export default function Login() {
               type="button"
               className="text-action recovery-back"
               onClick={() => { setRecoveryStep(0); setError('') }}
+              disabled={busy}
+              aria-label="Back to sign in"
             >
               ← Back to sign in
             </button>
@@ -524,7 +640,7 @@ export default function Login() {
             <footer className="card-footer">
               <div className="card-divider" />
               <div className="powered-by">
-                Powered by <strong>SEPL</strong>
+                Powered by <strong>SEPL</strong> • Enterprise Financial Intelligence
               </div>
             </footer>
           </form>

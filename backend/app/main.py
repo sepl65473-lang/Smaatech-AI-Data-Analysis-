@@ -2,8 +2,6 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from contextlib import asynccontextmanager
-import asyncio
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,33 +31,7 @@ load_dotenv()
 from app.config import settings
 from app.routers import upload, results, export, analyze, auth
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Background worker for data-retention and expired session auto-delete."""
-    async def retention_worker():
-        while True:
-            try:
-                await asyncio.sleep(900)  # sweep every 15 minutes
-                from app.session.store import session_store
-                deleted = session_store.prune_expired()
-                if deleted:
-                    logging.getLogger("app.retention").info("Pruned %d expired sessions/statements", deleted)
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logging.getLogger("app.retention").warning("Retention worker error: %s", exc)
-
-    worker_task = asyncio.create_task(retention_worker())
-    yield
-    worker_task.cancel()
-    try:
-        await worker_task
-    except asyncio.CancelledError:
-        pass
-
 app = FastAPI(
-    lifespan=lifespan,
     title="AI Data Analysis Platform API",
     description="AI-powered universal data analysis platform — backend API",
     version="1.0.0",
@@ -107,10 +79,16 @@ async def protect_api(request: Request, call_next):
 # EXTRA_CORS_ORIGINS can hold a comma-separated list of additional origins
 # (useful for staging / preview URLs) e.g. "https://preview.example.com"
 # ---------------------------------------------------------------------------
-_cors_origins: list[str] = [settings.FRONTEND_ORIGIN.rstrip("/")]
+_cors_origins: list[str] = [
+    settings.FRONTEND_ORIGIN,
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+]
 _extra = os.getenv("EXTRA_CORS_ORIGINS", "")
 if _extra:
-    _cors_origins.extend(o.strip().rstrip("/") for o in _extra.split(",") if o.strip())
+    _cors_origins.extend(o.strip() for o in _extra.split(",") if o.strip())
 
 app.add_middleware(
     CORSMiddleware,
@@ -157,7 +135,7 @@ async def health_check():
     db = check_database_health()
     status = "ok"
     status_code = 200
-    require_mongo = os.getenv("REQUIRE_MONGODB", "").strip().lower() in ("true", "1", "yes") or os.getenv("ENV", "").strip().lower() == "production"
+    require_mongo = os.getenv("REQUIRE_MONGODB", "").strip().lower() in ("true", "1", "yes") or os.getenv("ENV", "").strip().lower() in ("production", "prod")
     if (db.get("configured") and not db.get("connected")) or (require_mongo and not db.get("connected")):
         status = "degraded"
         status_code = 503

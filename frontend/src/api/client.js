@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-export const API_BASE_URL = (typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app'))
+export const API_BASE_URL = (typeof window !== 'undefined' && (window.location.hostname.endsWith('vercel.app') || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
   ? '/api'
   : (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 let csrfToken = ''
@@ -14,8 +14,9 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const method = (config.method || 'get').toUpperCase()
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
-    const csrf = csrfToken || document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))?.split('=').slice(1).join('=')
-    if (csrf) config.headers['X-CSRF-Token'] = decodeURIComponent(csrf)
+    const cookiePart = document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))
+    const csrf = cookiePart ? decodeURIComponent(cookiePart.split('=').slice(1).join('=')) : csrfToken
+    if (csrf) config.headers['X-CSRF-Token'] = csrf
   }
   return config
 })
@@ -45,7 +46,8 @@ api.interceptors.response.use(
 )
 
 export function getCsrfToken() {
-  return csrfToken || decodeURIComponent(document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))?.split('=').slice(1).join('=') || '')
+  const cookiePart = document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))
+  return cookiePart ? decodeURIComponent(cookiePart.split('=').slice(1).join('=')) : csrfToken
 }
 
 export function apiUrl(path) {

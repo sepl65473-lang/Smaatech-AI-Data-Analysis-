@@ -5,6 +5,7 @@ import { AuthContext } from './context/AuthContext'
 import Home from './pages/Home'
 import Results from './pages/Results'
 import Login from './pages/Login'
+import Activate from './pages/Activate'
 
 function RoutedApp() {
   const [auth, setAuth] = useState('loading')
@@ -29,6 +30,7 @@ function RoutedApp() {
       {showPasswordDialog && <PasswordDialog onClose={() => setShowPasswordDialog(false)} />}
       <Routes>
         <Route path="/login" element={auth === 'signed-in' ? <Navigate to="/" replace/> : <Login/>}/>
+        <Route path="/activate" element={<Activate />} />
         <Route path="/" element={auth === 'signed-in' ? <Home/> : <Navigate to="/login" replace state={{ from: location }}/>} />
         <Route path="/results" element={auth === 'signed-in' ? <Results/> : <Navigate to="/login" replace state={{ from: location }}/>} />
         <Route path="*" element={<Navigate to={auth === 'signed-in' ? '/' : '/login'} replace />} />

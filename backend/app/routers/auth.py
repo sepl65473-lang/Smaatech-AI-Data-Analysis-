@@ -23,6 +23,8 @@ LOCK_SECONDS = int(os.getenv("AUTH_LOCK_MINUTES", "15")) * 60
 IDLE_SECONDS = int(os.getenv("AUTH_IDLE_MINUTES", "30")) * 60
 ABSOLUTE_SECONDS = int(os.getenv("AUTH_SESSION_HOURS", "12")) * 3600
 REMEMBER_SECONDS = int(os.getenv("AUTH_REMEMBER_DAYS", "14")) * 86400
+INVITATION_TTL_HOURS = int(os.getenv("AUTH_INVITATION_HOURS", "48"))
+INVITATION_TTL_SECONDS = INVITATION_TTL_HOURS * 3600
 _is_prod = os.getenv("ENV", "production").lower() in {"production", "prod"}
 COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "true" if _is_prod else "false").lower() in {"1", "true", "yes"}
 COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
@@ -71,13 +73,22 @@ class PasswordReset(BaseModel):
 
 class AccountCreate(BaseModel):
     email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=12, max_length=128)
+    full_name: Optional[str] = Field(default=None, max_length=120)
+    password: Optional[str] = Field(default=None, min_length=12, max_length=128)
     role: str = Field(default="standard_user", pattern="^(administrator|standard_user)$")
+    permissions: Optional[list[str]] = None
 
 
 class AccountUpdate(BaseModel):
-    status: Optional[str] = Field(default=None, pattern="^(active|inactive|suspended|disabled|pending)$")
+    full_name: Optional[str] = Field(default=None, max_length=120)
+    status: Optional[str] = Field(default=None, pattern="^(active|inactive|suspended|disabled|pending|pending_activation)$")
     role: Optional[str] = Field(default=None, pattern="^(administrator|standard_user)$")
+    permissions: Optional[list[str]] = None
+
+
+class AccountActivate(BaseModel):
+    token: str = Field(min_length=16, max_length=128)
+    password: str = Field(min_length=12, max_length=128)
 
 
 class AdministratorPasswordReset(BaseModel):
@@ -120,10 +131,20 @@ def _csrf_ok(request: Request):
         log.warning("CSRF check failed: cookie_present=%s header_present=%s values_match=%s", bool(cookie), bool(header), bool(cookie and header and hmac.compare_digest(cookie, header)))
         raise HTTPException(403, "Refresh the page and try again.")
     origin = request.headers.get("origin")
-    allowed = {os.getenv("FRONTEND_ORIGIN", "http://localhost:5173"), *filter(None, os.getenv("EXTRA_CORS_ORIGINS", "").split(","))}
-    if origin and origin.rstrip("/") not in {x.strip().rstrip("/") for x in allowed}:
-        log.warning("CSRF origin rejected: origin=%s", origin)
-        raise HTTPException(403, "Request origin is not allowed.")
+    allowed = {
+        os.getenv("FRONTEND_ORIGIN", "http://localhost:5173"),
+        os.getenv("PUBLIC_FRONTEND_URL", ""),
+        os.getenv("FRONTEND_URL", ""),
+        os.getenv("APP_URL", ""),
+        *filter(None, os.getenv("EXTRA_CORS_ORIGINS", "").split(",")),
+    }
+    if origin:
+        clean_origin = origin.rstrip("/")
+        allowed_set = {x.strip().rstrip("/") for x in allowed if x}
+        is_loopback = clean_origin.startswith("http://localhost:") or clean_origin.startswith("http://127.0.0.1:") or clean_origin in ("http://localhost", "http://127.0.0.1")
+        if clean_origin not in allowed_set and not is_loopback:
+            log.warning("CSRF origin rejected: origin=%s", origin)
+            raise HTTPException(403, "Request origin is not allowed.")
 
 
 def _current(request: Request, *, touch=True):
@@ -146,7 +167,7 @@ def _current(request: Request, *, touch=True):
             db["sessions"].pop(token_key, None)
             return
         if touch: session["last_seen"] = now
-        result = {"id": user["id"], "email": user["email"], "role": user["role"], "permissions": user.get("permissions", [])}
+        result = {"id": user["id"], "email": user["email"], "full_name": user.get("full_name") or user["email"].split("@")[0].replace(".", " ").title(), "role": user["role"], "permissions": user.get("permissions", [])}
     auth_store.update(change)
     return result
 
@@ -200,6 +221,15 @@ async def login(body: LoginBody, request: Request, response: Response):
         if ip_rec["count"] >= 30:
             outcome["error"] = (429, "Too many sign-in attempts. Try again later."); return
 
+        # Check account status before evaluating password
+        if user and user.get("status") == "pending_activation":
+            outcome["error"] = (403, "Your account is pending activation. Please use the activation link sent to your email to set your password.")
+            return
+
+        if user and user.get("status") in {"suspended", "inactive", "disabled"}:
+            outcome["error"] = (403, "Your account has been suspended or deactivated. Contact your administrator.")
+            return
+
         # Enforce account lockout before checking or clearing password
         if user and user.get("locked_until", 0) > now:
             remaining = max(1, int(user["locked_until"] - now))
@@ -207,7 +237,7 @@ async def login(body: LoginBody, request: Request, response: Response):
             return
 
         clean_pass = body.password.strip()
-        stored_hash = user["password_hash"] if user else "scrypt$32768$8$1$" + ("00" * 16) + "$" + ("00" * 32)
+        stored_hash = user["password_hash"] if user and user.get("password_hash") else "scrypt$32768$8$1$" + ("00" * 16) + "$" + ("00" * 32)
         valid = _verify_password(body.password, stored_hash) or _verify_password(clean_pass, stored_hash)
 
         # Environment admin password bootstrap fallback (only if password not yet rotated)
@@ -223,14 +253,17 @@ async def login(body: LoginBody, request: Request, response: Response):
                     user = {
                         "id": user_id,
                         "email": env_admin_email,
+                        "full_name": "Super Administrator",
                         "password_hash": _hash_password(env_admin_pass),
                         "password_history": [],
                         "role": "administrator",
-                        "permissions": ["platform:access", "users:manage", "audit:read", "sessions:revoke"],
+                        "permissions": ["platform:access", "statements:upload", "reports:export", "analytics:view", "users:manage", "audit:read", "sessions:revoke"],
                         "status": "active",
                         "failed_attempts": 0,
                         "locked_until": 0,
                         "created_at": now,
+                        "activated_at": now,
+                        "last_login": now,
                     }
                     db.setdefault("users", {})[env_admin_email] = user
                     auth_store.audit(db, "admin_autobootstrap", user_id, user_id, source=ip)
@@ -240,6 +273,7 @@ async def login(body: LoginBody, request: Request, response: Response):
         if valid and user:
             user["locked_until"] = 0
             user["failed_attempts"] = 0
+            user["last_login"] = now
 
         if not user or not valid or user.get("status") != "active":
             ip_rec["count"] += 1; db["ip_failures"][ip] = ip_rec
@@ -255,13 +289,13 @@ async def login(body: LoginBody, request: Request, response: Response):
                 remaining = 3 - user.get("failed_attempts", 0) if user else None
                 outcome["error"] = (401, "Invalid email or password." if remaining is None else f"Invalid email or password. {remaining} attempt(s) remaining.")
             return
-        user["failed_attempts"] = 0; user["locked_until"] = 0
+        user["failed_attempts"] = 0; user["locked_until"] = 0; user["last_login"] = now
         ip_rec["count"] = 0; db["ip_failures"][ip] = ip_rec
         raw = secrets.token_urlsafe(48); key = hashlib.sha256(raw.encode()).hexdigest()
         max_age = REMEMBER_SECONDS if body.remember else ABSOLUTE_SECONDS
         db["sessions"][key] = {"id": secrets.token_urlsafe(12), "user_id": user["id"], "created_at": now, "last_seen": now, "idle_timeout": max(IDLE_SECONDS, max_age) if body.remember else IDLE_SECONDS, "expires_at": now + max_age, "absolute_expiry": now + max_age}
         auth_store.audit(db, "login_success", user["id"], user["id"], source=ip)
-        outcome.update(session=raw, user={"email": user["email"], "role": user["role"]}, max_age=max_age)
+        outcome.update(session=raw, user={"id": user["id"], "email": user["email"], "full_name": user.get("full_name") or user["email"].split("@")[0].replace(".", " ").title(), "role": user["role"], "permissions": user.get("permissions", [])}, max_age=max_age)
     auth_store.update(change)
     if outcome["error"]:
         status, detail = outcome["error"]
@@ -345,6 +379,118 @@ def _send_password_notice(email: str):
         if username: server.login(username, os.getenv("SMTP_PASSWORD", ""))
         server.send_message(msg)
     return True
+
+
+def _send_invitation(email: str, full_name: str, activation_url: str, expires_in_hours: int = INVITATION_TTL_HOURS) -> bool:
+    host = os.getenv("SMTP_HOST", "")
+    sender = os.getenv("SMTP_FROM_EMAIL", "")
+    port = int(os.getenv("SMTP_PORT", "587"))
+    sender_name = os.getenv("SMTP_FROM_NAME", "SEPL AI Data Analysis Platform")
+    if not host or not sender:
+        return False
+    msg = EmailMessage()
+    msg["Subject"] = "Welcome to SEPL — Activate Your Account"
+    msg["From"] = f"{sender_name} <{sender}>"
+    msg["To"] = email
+    text_content = (
+        f"Hello {full_name},\n\n"
+        "You have been invited to join the SEPL AI Data Analysis Platform.\n\n"
+        f"To activate your account and choose your password, visit:\n{activation_url}\n\n"
+        f"This link will expire in {expires_in_hours} hours.\n\n"
+        "If you did not expect this invitation, please ignore this email."
+    )
+    msg.set_content(text_content)
+    html_content = f"""<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px; color: #1e293b;'>
+      <div style='max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden;'>
+        <div style='background: linear-gradient(135deg, #1e3a8a, #0f172a); padding: 24px 32px;'>
+          <h1 style='color: #ffffff; margin: 0; font-size: 20px; font-weight: 700;'>SEPL AI Data Analysis Platform</h1>
+          <p style='color: #93c5fd; margin: 4px 0 0 0; font-size: 13px;'>Enterprise Financial Intelligence</p>
+        </div>
+        <div style='padding: 32px;'>
+          <h2 style='color: #0f172a; font-size: 18px; margin-top: 0;'>Welcome, {full_name}!</h2>
+          <p style='color: #475569; font-size: 14px; line-height: 1.6;'>
+            You have been invited by an administrator to access your enterprise workspace on the <strong>SEPL AI Data Analysis Platform</strong>.
+          </p>
+          <p style='color: #475569; font-size: 14px; line-height: 1.6;'>
+            Click the secure button below to activate your account and choose your password:
+          </p>
+          <div style='text-align: center; margin: 28px 0;'>
+            <a href='{activation_url}' style='background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-block;'>Activate Account & Set Password</a>
+          </div>
+          <p style='color: #64748b; font-size: 12px; line-height: 1.5;'>
+            Or copy and paste this secure link directly into your browser:<br/>
+            <a href='{activation_url}' style='color: #2563eb; word-break: break-all;'>{activation_url}</a>
+          </p>
+          <div style='margin-top: 24px; padding: 12px 16px; background-color: #f1f5f9; border-radius: 8px; border-left: 3px solid #3b82f6;'>
+            <p style='margin: 0; color: #334155; font-size: 12px;'>
+              <strong>Security Notice:</strong> This activation link is single-use and will expire in {expires_in_hours} hours.
+            </p>
+          </div>
+        </div>
+        <div style='padding: 16px 32px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center;'>
+          <p style='color: #94a3b8; font-size: 11px; margin: 0;'>
+            Powered by SEPL &bull; Smart Solutions. Better Tomorrow.
+          </p>
+        </div>
+      </div>
+    </div>"""
+    msg.add_alternative(html_content, subtype="html")
+    context = ssl.create_default_context()
+    client = smtplib.SMTP_SSL(host, port, timeout=15, context=context) if port == 465 else smtplib.SMTP(host, port, timeout=15)
+    with client as server:
+        if port != 465: server.starttls(context=context)
+        username = os.getenv("SMTP_USERNAME", "")
+        if username: server.login(username, os.getenv("SMTP_PASSWORD", ""))
+        server.send_message(msg)
+    return True
+
+
+@router.get("/activate/verify")
+async def verify_activation_token(token: str):
+    clean_token = str(token).strip()
+    if not clean_token:
+        raise HTTPException(400, "Invitation token is required.")
+    token_hash = hashlib.sha256(clean_token.encode()).hexdigest()
+    now = time.time()
+    db = auth_store.read()
+    user = next((u for u in db.get("users", {}).values() if u.get("invitation_token_hash") == token_hash and u.get("invitation_expires_at", 0) > now and u.get("status") == "pending_activation"), None)
+    if not user:
+        raise HTTPException(400, "This invitation link is invalid, expired, or has already been used.")
+    return {
+        "ok": True,
+        "email": user["email"],
+        "full_name": user.get("full_name") or user["email"].split("@")[0].replace(".", " ").title(),
+        "role": user["role"],
+        "expires_at": user.get("invitation_expires_at"),
+    }
+
+
+@router.post("/activate")
+async def activate_account(body: AccountActivate, request: Request):
+    _csrf_ok(request)
+    clean_token = body.token.strip()
+    _validate_password(body.password)
+    token_hash = hashlib.sha256(clean_token.encode()).hexdigest()
+    encoded = _hash_password(body.password)
+    now = time.time()
+    activated_info = {"id": None, "email": None}
+    def change(db):
+        user = next((u for u in db.setdefault("users", {}).values() if u.get("invitation_token_hash") == token_hash and u.get("invitation_expires_at", 0) > now and u.get("status") == "pending_activation"), None)
+        if not user:
+            raise HTTPException(400, "This invitation link is invalid, expired, or has already been used.")
+        user["password_hash"] = encoded
+        user["password_history"] = [encoded]
+        user["status"] = "active"
+        user["activated_at"] = now
+        user["invitation_token_hash"] = None
+        user["invitation_expires_at"] = None
+        user["failed_attempts"] = 0
+        user["locked_until"] = 0
+        auth_store.audit(db, "account_activated", user["id"], user["id"], source=_get_client_ip(request))
+        activated_info["id"] = user["id"]
+        activated_info["email"] = user["email"]
+    auth_store.update(change)
+    return {"ok": True, "message": "Account activated successfully. You can now sign in with your email and password.", "email": activated_info["email"]}
 
 
 @router.post("/recovery/request")
@@ -480,49 +626,321 @@ async def revoke_session(session_hash: str, request: Request):
 async def admin_users(request: Request):
     _admin(request)
     db = auth_store.read()
-    return {"users": [{"id":u["id"], "email":u["email"], "role":u["role"], "status":u["status"], "created_at":u["created_at"], "locked_until":u.get("locked_until", 0)} for u in db.get("users", {}).values()]}
+    users_list = []
+    for u in db.get("users", {}).values():
+        full_name = u.get("full_name") or u["email"].split("@")[0].replace(".", " ").title()
+        default_perms = ["platform:access", "statements:upload", "reports:export", "analytics:view", "users:manage", "audit:read", "sessions:revoke"] if u.get("role") == "administrator" else ["platform:access", "statements:upload", "reports:export", "analytics:view"]
+        users_list.append({
+            "id": u["id"],
+            "email": u["email"],
+            "full_name": full_name,
+            "role": u["role"],
+            "status": u["status"],
+            "permissions": u.get("permissions", default_perms),
+            "created_at": u.get("created_at", 0),
+            "activated_at": u.get("activated_at"),
+            "locked_until": u.get("locked_until", 0),
+            "last_login": u.get("last_login"),
+            "invitation_expires_at": u.get("invitation_expires_at"),
+        })
+    return {"users": users_list}
+
+
+def _is_permanent_super_admin(email: str | None) -> bool:
+    if not email:
+        return False
+    super_admin = os.getenv("AUTH_ADMIN_EMAIL", "itsmaatech@gmail.com").strip().lower()
+    return email.strip().lower() == super_admin
+
+
+def _get_public_frontend_url(request: Request | None = None) -> str:
+    # 1. Explicit production / deployment environment variables take absolute precedence
+    for key in ("PUBLIC_FRONTEND_URL", "FRONTEND_URL", "APP_URL"):
+        val = os.getenv(key, "").strip().rstrip("/")
+        if val:
+            if not val.startswith("http://") and not val.startswith("https://"):
+                val = f"https://{val}"
+            return val
+    # 2. Vercel deployment URL
+    vercel_url = os.getenv("VERCEL_URL", "").strip().rstrip("/")
+    if vercel_url:
+        return f"https://{vercel_url}"
+    # 3. Derive from incoming request origin or referer if available (e.g. local dev port 5173/5174)
+    if request:
+        origin = request.headers.get("origin") or request.headers.get("referer")
+        if origin:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(origin)
+                if parsed.scheme and parsed.netloc:
+                    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+            except Exception:
+                pass
+    # 4. Fallback to FRONTEND_ORIGIN or default local development port
+    configured = os.getenv("FRONTEND_ORIGIN", "").strip().rstrip("/")
+    if configured:
+        return configured
+    return "http://localhost:5173"
 
 
 @router.post("/admin/users", status_code=201)
 async def admin_create_user(body: AccountCreate, request: Request):
-    actor = _admin(request); _csrf_ok(request)
+    actor = _admin(request)
+    _csrf_ok(request)
     email = body.email.strip().lower()
-    if "@" not in email or "." not in email.rsplit("@", 1)[-1]: raise HTTPException(422, "Enter a valid email address.")
-    _validate_password(body.password); encoded = _hash_password(body.password); created = {"user": None}
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        raise HTTPException(422, "Enter a valid email address.")
+    full_name = body.full_name.strip() if body.full_name and body.full_name.strip() else email.split("@")[0].replace(".", " ").title()
+
+    default_perms = (
+        ["platform:access", "statements:upload", "reports:export", "analytics:view", "users:manage", "audit:read", "sessions:revoke"]
+        if body.role == "administrator"
+        else ["platform:access", "statements:upload", "reports:export", "analytics:view"]
+    )
+    permissions = body.permissions if body.permissions is not None else default_perms
+    now = time.time()
+    frontend_origin = _get_public_frontend_url(request)
+
+    # Check for duplicate email upfront
+    existing_db = auth_store.read()
+    if email in existing_db.get("users", {}):
+        raise HTTPException(409, "Account already exists.")
+
+    if body.password:
+        _validate_password(body.password)
+        encoded = _hash_password(body.password)
+        created = {"user": None}
+        def change(db):
+            if email in db.setdefault("users", {}):
+                raise HTTPException(409, "Account already exists.")
+            user_id = secrets.token_hex(16)
+            user = {
+                "id": user_id,
+                "email": email,
+                "full_name": full_name,
+                "password_hash": encoded,
+                "password_history": [encoded],
+                "role": body.role,
+                "permissions": permissions,
+                "status": "active",
+                "failed_attempts": 0,
+                "locked_until": 0,
+                "created_at": now,
+                "activated_at": now,
+                "last_login": None,
+                "invitation_token_hash": None,
+                "invitation_expires_at": None,
+            }
+            db["users"][email] = user
+            auth_store.audit(db, "account_created", actor["id"], user_id, role=body.role, source=_get_client_ip(request))
+            created["user"] = {
+                "id": user_id,
+                "email": email,
+                "full_name": full_name,
+                "role": body.role,
+                "status": "active",
+                "permissions": permissions,
+                "created_at": now,
+                "activated_at": now,
+            }
+        auth_store.update(change)
+        return created["user"]
+
+    # Invitation workflow: create pending user with expiring single-use token
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    expires_at = now + INVITATION_TTL_SECONDS
+    activation_url = f"{frontend_origin}/activate?token={raw_token}"
+    created = {"user": None}
+
     def change(db):
-        if email in db.setdefault("users", {}): raise HTTPException(409, "Account already exists.")
+        if email in db.setdefault("users", {}):
+            raise HTTPException(409, "Account already exists.")
         user_id = secrets.token_hex(16)
-        permissions = ["platform:access"] + (["users:manage", "audit:read", "sessions:revoke"] if body.role == "administrator" else [])
-        user = {"id":user_id, "email":email, "password_hash":encoded, "password_history":[], "role":body.role, "permissions":permissions, "status":"active", "failed_attempts":0, "locked_until":0, "created_at":time.time()}
-        db["users"][email] = user; auth_store.audit(db, "account_created", actor["id"], user_id, role=body.role)
-        created["user"] = {"id":user_id, "email":email, "role":body.role, "status":"active"}
+        user = {
+            "id": user_id,
+            "email": email,
+            "full_name": full_name,
+            "password_hash": None,
+            "password_history": [],
+            "role": body.role,
+            "permissions": permissions,
+            "status": "pending_activation",
+            "failed_attempts": 0,
+            "locked_until": 0,
+            "created_at": now,
+            "activated_at": None,
+            "last_login": None,
+            "invitation_token_hash": token_hash,
+            "invitation_expires_at": expires_at,
+        }
+        db["users"][email] = user
+        auth_store.audit(db, "user_invited", actor["id"], user_id, role=body.role, source=_get_client_ip(request))
+        created["user"] = {
+            "id": user_id,
+            "email": email,
+            "full_name": full_name,
+            "role": body.role,
+            "status": "pending_activation",
+            "permissions": permissions,
+            "created_at": now,
+            "invitation_expires_at": expires_at,
+        }
     auth_store.update(change)
-    return created["user"]
+
+    email_sent = False
+    try:
+        email_sent = _send_invitation(email, full_name, activation_url, expires_in_hours=INVITATION_TTL_HOURS)
+        if email_sent:
+            auth_store.update(lambda db: auth_store.audit(db, "invitation_email_sent", actor["id"], created["user"]["id"]))
+    except Exception as exc:
+        log.warning("Invitation email delivery failed: %s", exc)
+        auth_store.update(lambda db: auth_store.audit(db, "invitation_email_delivery_failed", actor["id"], created["user"]["id"], error=str(exc)))
+
+    return {
+        "id": created["user"]["id"],
+        "email": created["user"]["email"],
+        "full_name": created["user"]["full_name"],
+        "role": created["user"]["role"],
+        "status": created["user"]["status"],
+        "permissions": created["user"]["permissions"],
+        "email_sent": email_sent,
+        "invitation_url": activation_url,
+        "message": "User created and invitation email sent." if email_sent else "User created. SMTP is not configured, so email could not be sent automatically. Copy and share the invitation link.",
+    }
 
 
 @router.patch("/admin/users/{user_id}")
 async def admin_update_user(user_id: str, body: AccountUpdate, request: Request):
-    actor = _admin(request); _csrf_ok(request); outcome = {"user":None}
+    actor = _admin(request)
+    _csrf_ok(request)
+    outcome = {"user": None}
     def change(db):
         user = next((u for u in db.setdefault("users", {}).values() if u["id"] == user_id), None)
         if not user: raise HTTPException(404, "Account not found.")
+        is_super_admin = _is_permanent_super_admin(user["email"])
+        if is_super_admin:
+            if body.status is not None and body.status != "active":
+                raise HTTPException(403, "The permanent Super Admin account cannot be suspended or deactivated.")
+            if body.role is not None and body.role != "administrator":
+                raise HTTPException(403, "The permanent Super Admin account cannot be demoted.")
+            if actor["email"].lower() != user["email"].lower():
+                raise HTTPException(403, "Only the permanent Super Admin can modify their own account profile.")
         old_status, old_role = user["status"], user["role"]
-        if body.status is not None: user["status"] = body.status
+        if body.full_name is not None and body.full_name.strip():
+            user["full_name"] = body.full_name.strip()
+        if body.status is not None:
+            user["status"] = body.status
         if body.role is not None:
             user["role"] = body.role
-            user["permissions"] = ["platform:access"] + (["users:manage", "audit:read", "sessions:revoke"] if body.role == "administrator" else [])
+            if body.permissions is None:
+                user["permissions"] = ["platform:access", "statements:upload", "reports:export", "analytics:view", "users:manage", "audit:read", "sessions:revoke"] if body.role == "administrator" else ["platform:access", "statements:upload", "reports:export", "analytics:view"]
+        if body.permissions is not None:
+            user["permissions"] = body.permissions
+
         active_admins = [u for u in db["users"].values() if u["role"] == "administrator" and u["status"] == "active"]
         if old_role == "administrator" and old_status == "active" and len(active_admins) == 0:
             user["status"], user["role"] = old_status, old_role
             user["permissions"] = ["platform:access", "users:manage", "audit:read", "sessions:revoke"]
             raise HTTPException(409, "Cannot remove the last active administrator.")
+
         if user["status"] != "active":
-            db["sessions"] = {k:v for k,v in db.setdefault("sessions", {}).items() if v.get("user_id") != user_id}
-        if body.status is not None: auth_store.audit(db, "account_status_changed", actor["id"], user_id, old=old_status, new=user["status"])
-        if body.role is not None: auth_store.audit(db, "account_role_changed", actor["id"], user_id, old=old_role, new=user["role"])
-        outcome["user"] = {"id":user["id"], "email":user["email"], "role":user["role"], "status":user["status"]}
+            db["sessions"] = {k: v for k, v in db.setdefault("sessions", {}).items() if v.get("user_id") != user_id}
+
+        if body.status is not None: auth_store.audit(db, "account_status_changed", actor["id"], user_id, old=old_status, new=user["status"], source=_get_client_ip(request))
+        if body.role is not None: auth_store.audit(db, "account_role_changed", actor["id"], user_id, old=old_role, new=user["role"], source=_get_client_ip(request))
+        outcome["user"] = {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user.get("full_name") or user["email"].split("@")[0].replace(".", " ").title(),
+            "role": user["role"],
+            "status": user["status"],
+            "permissions": user.get("permissions", []),
+        }
     auth_store.update(change)
     return outcome["user"]
+
+
+@router.post("/admin/users/{user_id}/resend-invitation")
+async def admin_resend_invitation(user_id: str, request: Request):
+    actor = _admin(request)
+    _csrf_ok(request)
+    now = time.time()
+    frontend_origin = _get_public_frontend_url(request)
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    expires_at = now + INVITATION_TTL_SECONDS
+    activation_url = f"{frontend_origin}/activate?token={raw_token}"
+    target = {"email": None, "full_name": None}
+
+    def change(db):
+        user = next((u for u in db.setdefault("users", {}).values() if u["id"] == user_id), None)
+        if not user:
+            raise HTTPException(404, "User account not found.")
+        if user.get("status") != "pending_activation":
+            raise HTTPException(400, "Invitation can only be resent for accounts pending activation.")
+        user["invitation_token_hash"] = token_hash
+        user["invitation_expires_at"] = expires_at
+        target["email"] = user["email"]
+        target["full_name"] = user.get("full_name") or user["email"].split("@")[0].replace(".", " ").title()
+        auth_store.audit(db, "invitation_resent", actor["id"], user_id, source=_get_client_ip(request))
+
+    auth_store.update(change)
+
+    email_sent = False
+    try:
+        email_sent = _send_invitation(target["email"], target["full_name"], activation_url, expires_in_hours=INVITATION_TTL_HOURS)
+        if email_sent:
+            auth_store.update(lambda db: auth_store.audit(db, "invitation_email_sent", actor["id"], user_id))
+    except Exception as exc:
+        log.warning("Resend invitation email delivery failed: %s", exc)
+
+    return {
+        "ok": True,
+        "email_sent": email_sent,
+        "invitation_url": activation_url,
+        "message": "Invitation resent." if email_sent else "Invitation renewed. SMTP is not configured, so email could not be sent automatically. Share the invitation link manually.",
+    }
+
+
+@router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, request: Request):
+    actor = _admin(request)
+    _csrf_ok(request)
+    if user_id == actor["id"]:
+        raise HTTPException(400, "You cannot delete your own account.")
+
+    def change(db):
+        email_to_remove = None
+        target_user = None
+        for em, u in list(db.setdefault("users", {}).items()):
+            if u.get("id") == user_id:
+                email_to_remove = em
+                target_user = u
+                break
+        if not target_user:
+            raise HTTPException(404, "User account not found.")
+
+        # Safety: Permanent Super Admin cannot be deleted
+        if _is_permanent_super_admin(target_user.get("email")):
+            raise HTTPException(403, "The permanent Super Admin account cannot be deleted.")
+
+        # Safety: Cannot delete last active admin
+        if target_user.get("role") == "administrator" and target_user.get("status") == "active":
+            active_admins = [u for u in db["users"].values() if u.get("role") == "administrator" and u.get("status") == "active" and u.get("id") != user_id]
+            if not active_admins:
+                raise HTTPException(409, "Cannot delete the last active administrator.")
+
+        # Revoke all sessions for this user
+        db["sessions"] = {k: v for k, v in db.setdefault("sessions", {}).items() if v.get("user_id") != user_id}
+        if email_to_remove:
+            db.setdefault("recovery", {}).pop(email_to_remove, None)
+            db["users"].pop(email_to_remove, None)
+
+        auth_store.audit(db, "account_deleted", actor["id"], user_id, email=email_to_remove, source=_get_client_ip(request))
+
+    auth_store.update(change)
+    return {"ok": True, "message": "User deleted successfully."}
 
 
 @router.get("/admin/audit")
@@ -540,7 +958,7 @@ async def admin_unlock(user_id: str, request: Request):
         user = next((u for u in db.setdefault("users", {}).values() if u["id"] == user_id), None)
         if not user: return
         user["failed_attempts"] = 0; user["locked_until"] = 0; found["value"] = True
-        auth_store.audit(db, "account_unlocked", actor["id"], user_id)
+        auth_store.audit(db, "account_unlocked", actor["id"], user_id, source=_get_client_ip(request))
     auth_store.update(change)
     if not found["value"]: raise HTTPException(404, "Account not found.")
     return {"ok": True}
@@ -554,7 +972,7 @@ async def admin_revoke_sessions(user_id: str, request: Request):
         before = len(db.setdefault("sessions", {}))
         db["sessions"] = {key:value for key,value in db["sessions"].items() if value.get("user_id") != user_id}
         revoked["count"] = before - len(db["sessions"])
-        auth_store.audit(db, "administrator_revoked_sessions", actor["id"], user_id, count=revoked["count"])
+        auth_store.audit(db, "administrator_revoked_sessions", actor["id"], user_id, count=revoked["count"], source=_get_client_ip(request))
     auth_store.update(change)
     return {"ok": True, "revoked_count": revoked["count"]}
 
@@ -570,7 +988,7 @@ async def admin_reset_password(user_id: str, body: AdministratorPasswordReset, r
         if any(_verify_password(body.new_password, old) for old in history): raise HTTPException(400, "Choose a password not used recently.")
         user["password_hash"] = replacement_hash; user["password_history"] = history
         db["sessions"] = {key:value for key,value in db.setdefault("sessions", {}).items() if value.get("user_id") != user_id}
-        auth_store.audit(db, "administrator_password_reset", actor["id"], user_id)
+        auth_store.audit(db, "administrator_password_reset", actor["id"], user_id, source=_get_client_ip(request))
         found["email"] = user["email"]
     auth_store.update(change)
     try:

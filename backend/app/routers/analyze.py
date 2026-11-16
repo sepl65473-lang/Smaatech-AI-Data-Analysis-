@@ -9,14 +9,12 @@ GET  /api/analyze/{id}/download — Download cleaned data as CSV or Excel
 """
 
 from __future__ import annotations
-import os
-import time
 
 import io
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, Query
+from fastapi import APIRouter, File, HTTPException, UploadFile, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -26,6 +24,7 @@ from app.services.data_analyzer import analyze_data_quality, preview_cleaning, a
 from app.services.business_analytics import run_business_analysis, detect_dataset_type
 from app.services.ai_qa import answer_question
 from app.session.store import session_store
+from app.routers.auth import current_user
 
 import pandas as pd
 
@@ -33,23 +32,6 @@ router = APIRouter(tags=["analysis"])
 log = logging.getLogger(__name__)
 
 _ALLOWED_EXTENSIONS = {"pdf", "csv", "xlsx", "xls", "json"}
-
-def _validate_file_signature(file_bytes: bytes, ext: str) -> None:
-    """Validate initial magic bytes/signatures to prevent disguised files."""
-    if ext == "pdf":
-        if not file_bytes.startswith(b"%PDF-"):
-            raise HTTPException(415, "Invalid PDF: Missing '%PDF-' header signature.")
-    elif ext in {"xlsx", "xls"}:
-        if not (file_bytes.startswith(b"PK\x03\x04") or file_bytes.startswith(b"\xd0\xcf\x11\xe0")):
-            raise HTTPException(415, "Invalid Excel file: Unrecognized or corrupted workbook signature.")
-    elif ext == "json":
-        stripped = file_bytes.lstrip(b" \t\r\n")
-        if not (stripped.startswith(b"{") or stripped.startswith(b"[")):
-            raise HTTPException(415, "Invalid JSON file: Root document must begin with '{' or '['.")
-    elif ext == "csv":
-        if b"\x00" in file_bytes[:2048]:
-            raise HTTPException(415, "Invalid CSV file: Binary data detected.")
-
 
 
 def _to_records(df: pd.DataFrame) -> list[dict]:
@@ -74,12 +56,28 @@ class CleaningRequest(BaseModel):
 # POST /api/analyze — Universal file upload & analysis
 # ---------------------------------------------------------------------------
 
+def _check_session_access(data: dict, request: Request | None):
+    owner_id = data.get("owner_id")
+    if owner_id and request:
+        user = current_user(request)
+        if not user or (user.get("id") != owner_id and user.get("role") != "administrator"):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. You do not have permission to access this analysis session.",
+            )
+
+
 @router.post("/analyze")
-async def analyze_data(file: UploadFile = File(...)):
+async def analyze_data(file: UploadFile = File(...), request: Request = None):
     """
     Upload any data file for universal analysis.
     Auto-detects dataset type and runs appropriate analytics.
+    Enforces user data isolation by binding dataset to authenticated owner.
     """
+    user = current_user(request) if request else None
+    owner_id = user["id"] if user else None
+    owner_email = user["email"] if user else None
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided.")
 
@@ -95,8 +93,6 @@ async def analyze_data(file: UploadFile = File(...)):
 
     if not file_bytes or len(file_bytes) < 10:
         raise HTTPException(status_code=400, detail="File is empty or too small.")
-
-    _validate_file_signature(file_bytes, ext)
 
     if len(file_bytes) > settings.MAX_UPLOAD_SIZE_BYTES:
         raise HTTPException(
@@ -173,7 +169,7 @@ async def analyze_data(file: UploadFile = File(...)):
                 )
 
                 # Store both the analysis result and the raw DataFrame for Q&A
-                session_store.set(session_id, {
+                fin_payload = {
                     "analysis_type": "financial",
                     "financial_result": result.model_dump(mode="json"),
                     "dataset_type": "financial",
@@ -181,9 +177,11 @@ async def analyze_data(file: UploadFile = File(...)):
                     "raw_data": _to_records(df),
                     "columns": list(df.columns),
                     "row_count": len(df),
-                    "filename": filename,
-                    "uploaded_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                if owner_id:
+                    fin_payload["owner_id"] = owner_id
+                    fin_payload["owner_email"] = owner_email
+                session_store.set(session_id, fin_payload)
 
                 return {
                     "session_id": session_id,
@@ -203,7 +201,7 @@ async def analyze_data(file: UploadFile = File(...)):
         business_analysis = run_business_analysis(df, dataset_type)
 
         # Store results
-        session_store.set(session_id, {
+        univ_payload = {
             "analysis_type": "universal",
             "dataset_type": dataset_type,
             "data_quality": data_quality,
@@ -213,7 +211,11 @@ async def analyze_data(file: UploadFile = File(...)):
             "row_count": len(df),
             "filename": filename,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-        })
+        }
+        if owner_id:
+            univ_payload["owner_id"] = owner_id
+            univ_payload["owner_email"] = owner_email
+        session_store.set(session_id, univ_payload)
 
         return {
             "session_id": session_id,
@@ -242,11 +244,12 @@ async def analyze_data(file: UploadFile = File(...)):
 # ---------------------------------------------------------------------------
 
 @router.get("/analysis/{session_id}")
-async def get_analysis(session_id: str):
+async def get_analysis(session_id: str, request: Request = None):
     """Retrieve universal analysis results."""
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
 
     # For financial datasets, return the financial result format
     if data.get("analysis_type") == "financial":
@@ -274,51 +277,28 @@ async def get_analysis(session_id: str):
 # POST /api/analyze/{session_id}/qa — Ask a question about the data
 # ---------------------------------------------------------------------------
 
-MAX_QA_PER_SESSION = int(os.getenv("MAX_QA_PER_SESSION", "15"))
-
 @router.post("/analysis/{session_id}/qa")
-async def ask_question_endpoint(session_id: str, request: QuestionRequest):
-    """Ask a natural-language question about the uploaded data with rate limiting & quota."""
+async def ask_question_endpoint(session_id: str, payload: QuestionRequest, request: Request = None):
+    """Ask a natural-language question about the uploaded data."""
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
 
-    if not request.question.strip():
+    if not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
-
-    # Quota check
-    qa_count = data.get("qa_count", 0)
-    if qa_count >= MAX_QA_PER_SESSION:
-        raise HTTPException(
-            status_code=429,
-            detail=f"AI question quota of {MAX_QA_PER_SESSION} questions per session reached. All dashboard analytics and exports remain available.",
-        )
-
-    # Cooldown rate limit (min 2 seconds between questions)
-    last_qa_time = data.get("last_qa_time", 0)
-    now = time.time()
-    if now - last_qa_time < 2.0:
-        raise HTTPException(status_code=429, detail="Please wait a moment before asking another question.")
 
     raw_data = data.get("raw_data", [])
     df = pd.DataFrame(raw_data)
+
     analysis = data.get("business_analysis") or data.get("financial_result") or {}
 
     try:
-        result = answer_question(request.question, df, analysis)
-        
-        # Update usage counter under session lock
-        def increment_qa(d):
-            d["qa_count"] = d.get("qa_count", 0) + 1
-            d["last_qa_time"] = now
-        session_store.update(session_id, increment_qa)
-        
+        result = answer_question(payload.question, df, analysis)
         return result
-    except HTTPException:
-        raise
     except Exception as exc:
-        log.exception("Q&A failed for session %s", session_id)
-        raise HTTPException(status_code=500, detail="Could not answer question at this time. Please try again.") from exc
+        log.exception("Q&A failed")
+        raise HTTPException(status_code=500, detail=f"Could not answer question: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -326,19 +306,20 @@ async def ask_question_endpoint(session_id: str, request: QuestionRequest):
 # ---------------------------------------------------------------------------
 
 @router.post("/analysis/{session_id}/clean")
-async def clean_data_endpoint(session_id: str, request: CleaningRequest):
+async def clean_data_endpoint(session_id: str, payload: CleaningRequest, request: Request = None):
     """Preview or apply cleaning operations on the data."""
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
 
     raw_data = data.get("raw_data", [])
     df = pd.DataFrame(raw_data)
 
-    if request.apply:
+    if payload.apply:
         def apply_update(current):
             current_df = pd.DataFrame(current.get("raw_data", []))
-            cleaned = apply_cleaning(current_df, request.operations)
+            cleaned = apply_cleaning(current_df, payload.operations)
             quality = analyze_data_quality(cleaned)
             business = run_business_analysis(cleaned, current.get("dataset_type"))
             current.setdefault("original_data", current.get("raw_data", []))
@@ -361,7 +342,7 @@ async def clean_data_endpoint(session_id: str, request: CleaningRequest):
             raise HTTPException(status_code=404, detail="Session not found or expired.")
     else:
         # Preview only
-        preview = preview_cleaning(df, request.operations)
+        preview = preview_cleaning(df, payload.operations)
         return {"status": "preview", **preview}
 
 
@@ -370,8 +351,13 @@ async def clean_data_endpoint(session_id: str, request: CleaningRequest):
 # ---------------------------------------------------------------------------
 
 @router.post("/analysis/{session_id}/undo")
-async def undo_cleaning(session_id: str):
+async def undo_cleaning(session_id: str, request: Request = None):
     """Undo the last cleaning operation and restore original data."""
+    data = session_store.get(session_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
+
     def restore(current):
         original = current.get("original_data")
         if original is None:
@@ -400,11 +386,13 @@ async def undo_cleaning(session_id: str):
 async def download_data(
     session_id: str,
     format: str = Query(default="csv", pattern="^(csv|xlsx)$"),
+    request: Request = None,
 ):
     """Download the (optionally cleaned) data as CSV or Excel."""
     data = session_store.get(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
+    _check_session_access(data, request)
 
     raw_data = data.get("raw_data", [])
     df = pd.DataFrame(raw_data)
@@ -430,12 +418,3 @@ async def download_data(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="data_analysis_export.xlsx"'},
     )
-
-
-@router.delete("/analysis/{session_id}")
-async def delete_analysis_endpoint(session_id: str):
-    """Explicitly delete uploaded dataset and its analysis from persistent storage."""
-    if not session_store.exists(session_id):
-        raise HTTPException(status_code=404, detail="Session not found or already deleted.")
-    session_store.delete(session_id)
-    return {"ok": True, "message": "Dataset and session permanently deleted."}

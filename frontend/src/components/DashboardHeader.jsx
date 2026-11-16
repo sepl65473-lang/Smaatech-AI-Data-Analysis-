@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useContext } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AuthContext } from '../context/AuthContext'
+import AdminUsersModal from './AdminUsersModal'
 
 export default function DashboardHeader({
   user: userProp,
@@ -19,6 +20,7 @@ export default function DashboardHeader({
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false)
+  const [showAdminUsersModal, setShowAdminUsersModal] = useState(false)
   const [activeModal, setActiveModal] = useState(null) // 'profile' | 'account' | 'notifications' | 'help' | 'activity' | 'security' | 'shortcuts'
   const [signingOut, setSigningOut] = useState(false)
   const menuRef = useRef(null)
@@ -205,8 +207,24 @@ export default function DashboardHeader({
             )}
           </div>
 
-          {/* Right Actions - STRICTLY TWO VISIBLE ACTIONS + THREE-DOT MENU */}
+          {/* Right Actions */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* ADMIN ACTION: Admin User Management */}
+            {user?.role === 'administrator' && (
+              <button
+                type="button"
+                onClick={() => setShowAdminUsersModal(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-all shadow-2xs active:scale-95"
+                title="Manage user accounts, invitations & security audits"
+              >
+                <svg className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+                <span className="hidden xs:inline">User Management</span>
+                <span className="xs:hidden">Users</span>
+              </button>
+            )}
+
             {/* VISIBLE ACTION 1: Change Password */}
             <button
               type="button"
@@ -282,6 +300,26 @@ export default function DashboardHeader({
                   </div>
 
                   <div className="space-y-0.5 text-xs">
+                    {/* Admin User Management */}
+                    {user?.role === 'administrator' && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setMenuOpen(false); setShowAdminUsersModal(true) }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 transition-colors text-left"
+                      >
+                        <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                          </svg>
+                        </span>
+                        <div>
+                          <div className="font-bold text-emerald-900 dark:text-emerald-100">User Management</div>
+                          <div className="text-[10px] text-emerald-700 dark:text-emerald-400">Invite, configure roles & audit logs</div>
+                        </div>
+                      </button>
+                    )}
+
                     {/* 1. Dark / Light Mode Toggle */}
                     <button
                       type="button"
@@ -785,6 +823,14 @@ export default function DashboardHeader({
             </div>
           </div>
         </ModalWrapper>
+      )}
+
+      {showAdminUsersModal && (
+        <AdminUsersModal
+          isOpen={showAdminUsersModal}
+          onClose={() => setShowAdminUsersModal(false)}
+          currentUser={user}
+        />
       )}
     </>
   )
