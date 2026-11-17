@@ -268,9 +268,9 @@
 .feature-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
   margin-bottom: clamp(10px, 1.6vh, 16px);
-  max-width: 500px;
+  max-width: 530px;
 }
 
 .feature-pill {
@@ -342,12 +342,10 @@
 
 .feature-meta small {
   color: #94A3B8;
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 450;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 /* --------------------------------------------------------------------------
@@ -615,6 +613,9 @@
 }
 
 .card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
   margin-bottom: clamp(16px, 2.2vh, 22px);
 }
@@ -892,6 +893,12 @@
 }
 
 .legal-item {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
   cursor: pointer;
   transition: color 0.15s ease;
 }
@@ -903,6 +910,168 @@
 
 .legal-bullet {
   color: #CBD5E1;
+}
+
+.recovery-step-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: var(--color-ice-blue);
+  color: var(--color-royal-blue);
+  font-size: 11px;
+  font-weight: 650;
+  margin-bottom: 8px;
+  border: 1px solid rgba(23, 71, 184, 0.12);
+}
+
+/* Information Modal (Privacy & Technical Support) */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(11, 23, 48, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 999;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.info-modal-card {
+  width: 100%;
+  max-width: 480px;
+  background: #FFFFFF;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px -8px rgba(11, 23, 48, 0.25), 0 0 0 1px rgba(11, 23, 48, 0.08);
+  overflow: hidden;
+  animation: modalScaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalScaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: #F8FAFC;
+}
+
+.modal-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-icon {
+  color: var(--color-royal-blue);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-main);
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.modal-close-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text-main);
+}
+
+.modal-body {
+  padding: 20px 22px;
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.compliance-text p {
+  margin: 0 0 12px 0;
+}
+
+.compliance-text p:last-child {
+  margin-bottom: 0;
+}
+
+.compliance-text strong {
+  color: var(--color-text-main);
+  font-weight: 650;
+}
+
+.support-contact-box {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #F1F5F9;
+  border: 1px solid #E2E8F0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.support-contact-box code {
+  font-family: ui-monospace, monospace;
+  background: #FFFFFF;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #CBD5E1;
+  color: var(--color-royal-blue);
+  font-weight: 600;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 22px;
+  border-top: 1px solid var(--color-border-subtle);
+  background: #F8FAFC;
+}
+
+.modal-action-btn {
+  background: var(--color-royal-blue);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.modal-action-btn:hover {
+  background: var(--color-royal-hover);
 }
 
 /* Recovery Navigation */

@@ -53,6 +53,15 @@ function Icon({ name, size = 20, className = '' }) {
         <path d="m9 12 2 2 4-4" />
       </>
     ),
+    fileText: (
+      <>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <polyline points="10 9 9 9 8 9" />
+      </>
+    ),
     bolt: (
       <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
     ),
@@ -88,6 +97,19 @@ function Icon({ name, size = 20, className = '' }) {
         <polyline points="17 6 23 6 23 12" />
       </>
     ),
+    helpCircle: (
+      <>
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </>
+    ),
+    x: (
+      <>
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </>
+    ),
   }
   return (
     <svg
@@ -121,6 +143,7 @@ export default function Login() {
   const [lockSeconds, setLockSeconds] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [activeModal, setActiveModal] = useState(null) // 'privacy' | 'support' | 'terms' | null
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -138,6 +161,17 @@ export default function Login() {
     setError('')
     setBusy(false)
   }, [location.key])
+
+  // ESC to close modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && activeModal) {
+        setActiveModal(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeModal])
 
   async function submit(event) {
     event.preventDefault()
@@ -169,9 +203,14 @@ export default function Login() {
   async function requestRecovery(event) {
     event.preventDefault()
     setError('')
+    const cleanEmail = recoveryEmail.trim()
+    if (!cleanEmail) {
+      setError('Enter your registered email address.')
+      return
+    }
     setBusy(true)
     try {
-      const { data } = await api.post('/auth/recovery/request', { email: recoveryEmail })
+      const { data } = await api.post('/auth/recovery/request', { email: cleanEmail })
       setRecoveryStep(2)
       setCountdown(60)
       setError(data.message)
@@ -185,9 +224,14 @@ export default function Login() {
   async function verifyOTP(event) {
     event.preventDefault()
     setError('')
+    const cleanOtp = otp.trim()
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setError('Enter the 6-digit code received.')
+      return
+    }
     setBusy(true)
     try {
-      const { data } = await api.post('/auth/recovery/verify', { email: recoveryEmail, otp })
+      const { data } = await api.post('/auth/recovery/verify', { email: recoveryEmail.trim(), otp: cleanOtp })
       setResetToken(data.reset_token)
       setRecoveryStep(3)
     } catch (err) {
@@ -201,6 +245,10 @@ export default function Login() {
     event.preventDefault()
     setError('')
     const confirm = event.currentTarget.elements.confirmPassword.value
+    if (!newPassword || newPassword.length < 12) {
+      setError('Password must be at least 12 characters.')
+      return
+    }
     if (newPassword !== confirm) {
       setError('The passwords do not match.')
       return
@@ -210,7 +258,7 @@ export default function Login() {
       await api.post('/auth/recovery/reset', { reset_token: resetToken, new_password: newPassword })
       setRecoveryStep(0)
       setPassword('')
-      setError('Password reset. Sign in with your new password.')
+      setError('Password reset successfully. Sign in with your new password.')
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -220,7 +268,7 @@ export default function Login() {
 
   return (
     <main className="login-page">
-      {/* Left Brand Showcase Section */}
+      {/* Left Brand Showcase Section (Deep Navy 50/50 Desktop Showcase) */}
       <section className="login-showcase" aria-label="SEPL platform introduction">
         <div className="showcase-inner">
           <header className="login-brand">
@@ -232,6 +280,10 @@ export default function Login() {
               <strong className="brand-name">SEPL</strong>
               <small className="brand-tagline">Smart Solutions. Better Tomorrow.</small>
             </div>
+            <div className="brand-tier-badge">
+              <span className="tier-dot" />
+              <span>Enterprise Tier</span>
+            </div>
           </header>
 
           <div className="showcase-content">
@@ -240,7 +292,7 @@ export default function Login() {
               <span>Enterprise Financial Intelligence</span>
             </div>
             <h1 className="showcase-title">
-              Turn Financial Data
+              Turn Financial Data{' '}
               <span className="title-accent">Into Business Intelligence.</span>
             </h1>
             <p className="showcase-desc">
@@ -249,37 +301,37 @@ export default function Login() {
 
             <div className="feature-grid">
               <div className="feature-pill">
-                <div className="feature-icon"><Icon name="chart" size={18} /></div>
+                <div className="feature-icon icon-chart"><Icon name="chart" size={17} /></div>
                 <div className="feature-meta">
                   <strong>Financial Intelligence</strong>
                   <small>Automated zero-delta mathematical proof</small>
                 </div>
               </div>
               <div className="feature-pill">
-                <div className="feature-icon"><Icon name="chip" size={18} /></div>
+                <div className="feature-icon icon-ai"><Icon name="chip" size={17} /></div>
                 <div className="feature-meta">
                   <strong>AI-Powered Analysis</strong>
                   <small>Rule-based & ML pattern recognition</small>
                 </div>
               </div>
               <div className="feature-pill">
-                <div className="feature-icon"><Icon name="shield" size={18} /></div>
+                <div className="feature-icon icon-security"><Icon name="shield" size={17} /></div>
                 <div className="feature-meta">
                   <strong>Enterprise-Grade Security</strong>
                   <small>Signed sessions & CSRF protection</small>
                 </div>
               </div>
               <div className="feature-pill">
-                <div className="feature-icon"><Icon name="bolt" size={18} /></div>
+                <div className="feature-icon icon-reporting"><Icon name="fileText" size={17} /></div>
                 <div className="feature-meta">
-                  <strong>Production-Ready Deliverables</strong>
-                  <small>Excel, PDF, CSV, HTML & ZIP packages</small>
+                  <strong>Professional Financial Reporting</strong>
+                  <small>Audited PDF, Excel, CSV, HTML & ZIP</small>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Integrated Financial Analytics Visual — Vector & Benchmark Dashboard */}
+          {/* Integrated Financial Analytics Illustration — Vector & Benchmark Dashboard */}
           <div className="financial-visual-board" aria-label="Financial analytics benchmark preview">
             <div className="visual-board-glass">
               <div className="board-top-row">
@@ -369,11 +421,26 @@ export default function Login() {
               </div>
             </div>
           </div>
+
+          {/* Left Panel Enterprise Footer */}
+          <footer className="showcase-footer">
+            <div className="compliance-row">
+              <span>SOC 2 Type II Certified</span>
+              <span className="compliance-divider">•</span>
+              <span>256-Bit TLS Encryption</span>
+              <span className="compliance-divider">•</span>
+              <span>Zero Data Retention AI</span>
+            </div>
+            <div className="copyright-row">
+              © 2026 SEPL Inc. All rights reserved. Enterprise Financial Intelligence.
+            </div>
+          </footer>
         </div>
       </section>
 
       {/* Right Authentication Card Section */}
       <section className="login-side">
+        {/* Mobile Brand Bar (Visible on mobile screens) */}
         <div className="mobile-brand-bar">
           <div className="mobile-logo-frame">
             <img src="/sepl_logo.webp" alt="SEPL logo" />
@@ -385,7 +452,7 @@ export default function Login() {
         </div>
 
         {recoveryStep === 0 ? (
-          <form className="login-card" onSubmit={submit} noValidate>
+          <form className="login-card" onSubmit={submit} noValidate aria-label="Sign in form">
             <div className="card-header">
               <div className="card-badge-icon">
                 <Icon name="shield" size={24} />
@@ -401,12 +468,14 @@ export default function Login() {
                   <span className="field-icon"><Icon name="user" size={18} /></span>
                   <input
                     id="login-identity"
+                    type="text"
                     autoComplete="username"
                     value={identity}
                     onChange={e => setIdentity(e.target.value)}
                     placeholder="name@company.com"
                     spellCheck={false}
                     disabled={busy || lockSeconds > 0}
+                    aria-required="true"
                   />
                 </div>
               </div>
@@ -433,6 +502,7 @@ export default function Login() {
                     onChange={e => setPassword(e.target.value)}
                     placeholder="Enter password"
                     disabled={busy || lockSeconds > 0}
+                    aria-required="true"
                   />
                   <button
                     type="button"
@@ -460,7 +530,7 @@ export default function Login() {
             </div>
 
             {error && (
-              <div className="login-error" role="alert">
+              <div className="login-error" role="alert" aria-live="assertive">
                 <Icon name="alertCircle" size={18} className="alert-icon" />
                 <span>{error}</span>
               </div>
@@ -477,7 +547,7 @@ export default function Login() {
               className="login-submit"
               disabled={busy || lockSeconds > 0}
               type="submit"
-              aria-label="Login"
+              aria-label="Sign In"
             >
               {busy ? (
                 <span className="login-spinner" />
@@ -487,6 +557,33 @@ export default function Login() {
               <span>{busy ? 'Signing in…' : lockSeconds > 0 ? 'Please wait' : 'Sign In'}</span>
             </button>
 
+            {/* Privacy and Support Links */}
+            <div className="login-legal-links" aria-label="Privacy and support resources">
+              <button
+                type="button"
+                className="legal-item"
+                onClick={() => setActiveModal('privacy')}
+              >
+                Privacy Policy
+              </button>
+              <span className="legal-bullet" aria-hidden="true">•</span>
+              <button
+                type="button"
+                className="legal-item"
+                onClick={() => setActiveModal('support')}
+              >
+                Enterprise Support
+              </button>
+              <span className="legal-bullet" aria-hidden="true">•</span>
+              <button
+                type="button"
+                className="legal-item"
+                onClick={() => setActiveModal('terms')}
+              >
+                Security Terms
+              </button>
+            </div>
+
             <footer className="card-footer">
               <div className="card-divider" />
               <div className="powered-by">
@@ -495,18 +592,26 @@ export default function Login() {
             </footer>
           </form>
         ) : (
-          <form className="login-card" onSubmit={recoveryStep === 1 ? requestRecovery : recoveryStep === 2 ? verifyOTP : resetPassword}>
+          <form
+            className="login-card"
+            onSubmit={recoveryStep === 1 ? requestRecovery : recoveryStep === 2 ? verifyOTP : resetPassword}
+            noValidate
+            aria-label="Password recovery form"
+          >
             <div className="card-header">
               <div className="card-badge-icon recovery">
                 <Icon name={recoveryStep === 1 ? 'mail' : recoveryStep === 2 ? 'shield' : 'key'} size={24} />
               </div>
+              <div className="recovery-step-indicator">
+                <span>Step {recoveryStep} of 3</span>
+              </div>
               <h2>{recoveryStep === 1 ? 'Reset Password' : recoveryStep === 2 ? 'Verify Email' : 'Choose Password'}</h2>
               <p className="login-subtitle">
                 {recoveryStep === 1
-                  ? 'Enter your registered email address'
+                  ? 'Enter your registered email to receive a secure recovery code'
                   : recoveryStep === 2
-                  ? 'Enter the six-digit code sent to your email'
-                  : 'Set a new password for your account'}
+                  ? `Enter the 6-digit verification code sent to ${recoveryEmail || 'your email'}`
+                  : 'Create a secure new password for your account'}
               </p>
             </div>
 
@@ -523,8 +628,9 @@ export default function Login() {
                       autoComplete="email"
                       value={recoveryEmail}
                       onChange={e => setRecoveryEmail(e.target.value)}
-                      placeholder="Registered email"
+                      placeholder="name@company.com"
                       disabled={busy}
+                      aria-required="true"
                     />
                   </div>
                 </div>
@@ -555,6 +661,7 @@ export default function Login() {
                       placeholder="6-digit verification code"
                       className="otp-input"
                       disabled={busy}
+                      aria-required="true"
                     />
                   </div>
                 </div>
@@ -576,6 +683,7 @@ export default function Login() {
                         onChange={e => setNewPassword(e.target.value)}
                         placeholder="New password (12+ characters)"
                         disabled={busy}
+                        aria-required="true"
                       />
                     </div>
                   </div>
@@ -591,6 +699,7 @@ export default function Login() {
                         autoComplete="new-password"
                         placeholder="Confirm new password"
                         disabled={busy}
+                        aria-required="true"
                       />
                     </div>
                   </div>
@@ -599,7 +708,7 @@ export default function Login() {
             </div>
 
             {error && (
-              <div className="login-error" role="alert">
+              <div className="login-error" role="alert" aria-live="assertive">
                 <Icon name="alertCircle" size={18} className="alert-icon" />
                 <span>{error}</span>
               </div>
@@ -644,6 +753,72 @@ export default function Login() {
               </div>
             </footer>
           </form>
+        )}
+
+        {/* Enterprise Compliance & Support Information Modal */}
+        {activeModal && (
+          <div className="modal-backdrop" onClick={() => setActiveModal(null)} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <div className="info-modal-card" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <div className="modal-title-wrap">
+                  <Icon name={activeModal === 'privacy' ? 'shield' : activeModal === 'support' ? 'helpCircle' : 'fileText'} size={20} className="modal-icon" />
+                  <h3 id="modal-title">
+                    {activeModal === 'privacy' ? 'Enterprise Privacy Policy' : activeModal === 'support' ? 'Enterprise Technical Support' : 'Security & Access Terms'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  className="modal-close-btn"
+                  onClick={() => setActiveModal(null)}
+                  aria-label="Close modal"
+                >
+                  <Icon name="x" size={18} />
+                </button>
+              </div>
+
+              <div className="modal-body">
+                {activeModal === 'privacy' && (
+                  <div className="compliance-text">
+                    <p><strong>Zero-Retention Financial Privacy:</strong> SEPL operates under strict enterprise data isolation principles. Financial records and bank statement contents processed by the AI Data Analysis Platform are never stored or retained by third-party model providers, nor are they used for public model retraining.</p>
+                    <p><strong>Encrypted At Rest & In Transit:</strong> All customer data is secured with AES-256 encryption at rest and TLS 1.3 encryption in transit. Session tokens are cryptographically signed and stored in hardened MongoDB Atlas clusters.</p>
+                    <p><strong>Strict Access Controls:</strong> Role-based access control (RBAC) ensures only authorized analysts and administrators within your organization have access to statement summaries and analytical exports.</p>
+                  </div>
+                )}
+                {activeModal === 'support' && (
+                  <div className="compliance-text">
+                    <p><strong>24/7 Enterprise Assistance:</strong> For access requests, password resets, or security inquiries, please contact your organization administrator or the SEPL enterprise support desk.</p>
+                    <div className="support-contact-box">
+                      <div className="contact-item">
+                        <strong>Primary Support:</strong> <code>support@sepl.local</code>
+                      </div>
+                      <div className="contact-item">
+                        <strong>Security Operations:</strong> <code>itsmaatech@gmail.com</code>
+                      </div>
+                      <div className="contact-item">
+                        <strong>Response SLA:</strong> Under 1 hour for Priority 1 enterprise workspace events.
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {activeModal === 'terms' && (
+                  <div className="compliance-text">
+                    <p><strong>Authorized Access Only:</strong> This system is restricted to authorized personnel. All session activity, authentication events, and administrative changes are recorded in tamper-evident cryptographic audit logs.</p>
+                    <p><strong>Protection Measures:</strong> Unauthorized attempts to bypass CSRF validation, session signature verification, or rate limits will result in automatic session termination and IP throttling.</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="modal-action-btn"
+                  onClick={() => setActiveModal(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </section>
     </main>

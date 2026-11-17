@@ -12,10 +12,12 @@ export default defineConfig({
       '/api': {
         target: apiTarget,
         changeOrigin: true,
+        secure: false,
       },
       '/health': {
         target: apiTarget,
         changeOrigin: true,
+        secure: false,
       },
     },
   },
@@ -25,10 +27,12 @@ export default defineConfig({
       '/api': {
         target: apiTarget,
         changeOrigin: true,
+        secure: false,
       },
       '/health': {
         target: apiTarget,
         changeOrigin: true,
+        secure: false,
       },
     },
   },
