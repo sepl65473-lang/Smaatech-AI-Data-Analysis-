@@ -1,14 +1,12 @@
 import io
+import json
 import time
 import pytest
-from starlette.testclient import TestClient
 
-from app.main import app
+from app.main import app, health_check
 from app.session.store import session_store, FileSessionStore
 from app.routers.upload import _validate_file_signature
 from fastapi import HTTPException
-
-client = TestClient(app)
 
 def test_file_signature_validation():
     # PDF check
@@ -44,9 +42,9 @@ def test_file_session_store_retention_prune(tmp_path):
 
 
 def test_health_check_endpoint():
-    res = client.get("/health")
+    res = health_check()
     assert res.status_code == 200
-    data = res.json()
+    data = json.loads(res.body.decode("utf-8"))
     assert data["status"] == "ok"
     assert "database" in data
 

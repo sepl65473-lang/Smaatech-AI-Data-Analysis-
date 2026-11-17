@@ -129,7 +129,7 @@ async def root():
 
 @app.get("/health", tags=["health"])
 @app.get("/api/health", tags=["health"])
-async def health_check():
+def health_check():
     """Liveness probe — returns status, AI status, and database connectivity."""
     from app.session.store import check_database_health
     db = check_database_health()

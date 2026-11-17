@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 import secrets
 import shutil
@@ -7,13 +8,10 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import mongomock
 import pytest
-from starlette.testclient import TestClient
 
 from app.session.mongo_store import MongoSessionStore, check_mongo_connection
 from app.session.store import SessionStore, check_database_health, FileSessionStore
-from app.main import app
-
-client = TestClient(app)
+from app.main import app, health_check
 
 
 def test_mongo_session_store_crud_lifecycle():
@@ -134,9 +132,9 @@ def test_health_endpoint_reports_degraded_when_mongodb_required_but_missing(monk
     monkeypatch.setenv("REQUIRE_MONGODB", "true")
     monkeypatch.delenv("MONGODB_URI", raising=False)
 
-    res = client.get("/health")
+    res = health_check()
     assert res.status_code == 503
-    payload = res.json()
+    payload = json.loads(res.body.decode("utf-8"))
     assert payload["status"] == "degraded"
     assert payload["database"]["connected"] is False
 
