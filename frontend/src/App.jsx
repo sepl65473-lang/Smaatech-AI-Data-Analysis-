@@ -1,11 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import api from './api/client'
 import { AuthContext } from './context/AuthContext'
-import Home from './pages/Home'
-import Results from './pages/Results'
-import Login from './pages/Login'
-import Activate from './pages/Activate'
+
+const Landing = lazy(() => import('./pages/Landing'))
+const Home = lazy(() => import('./pages/Home'))
+const Results = lazy(() => import('./pages/Results'))
+const Login = lazy(() => import('./pages/Login'))
+const Activate = lazy(() => import('./pages/Activate'))
 
 function RoutedApp() {
   const [auth, setAuth] = useState('loading')
@@ -28,13 +30,17 @@ function RoutedApp() {
   return (
     <AuthContext.Provider value={{ user, auth, logout, openPasswordDialog: () => setShowPasswordDialog(true) }}>
       {showPasswordDialog && <PasswordDialog onClose={() => setShowPasswordDialog(false)} />}
-      <Routes>
-        <Route path="/login" element={auth === 'signed-in' ? <Navigate to="/" replace/> : <Login/>}/>
-        <Route path="/activate" element={<Activate />} />
-        <Route path="/" element={auth === 'signed-in' ? <Home/> : <Navigate to="/login" replace state={{ from: location }}/>} />
-        <Route path="/results" element={auth === 'signed-in' ? <Results/> : <Navigate to="/login" replace state={{ from: location }}/>} />
-        <Route path="*" element={<Navigate to={auth === 'signed-in' ? '/' : '/login'} replace />} />
-      </Routes>
+      <Suspense fallback={<div className="min-h-screen grid place-items-center text-slate-500 text-sm">Loading workspace…</div>}>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/login" element={auth === 'signed-in' ? <Navigate to="/dashboard" replace/> : <Login/>}/>
+          <Route path="/activate" element={<Activate />} />
+          <Route path="/dashboard" element={auth === 'signed-in' ? <Home/> : <Navigate to="/login" replace state={{ from: location }}/>} />
+          <Route path="/results" element={auth === 'signed-in' ? <Results/> : <Navigate to="/login" replace state={{ from: location }}/>} />
+          <Route path="/app" element={auth === 'signed-in' ? <Home/> : <Navigate to="/login" replace state={{ from: location }}/>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </AuthContext.Provider>
   )
 }

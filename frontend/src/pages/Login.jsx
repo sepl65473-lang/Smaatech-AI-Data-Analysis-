@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import api, { getErrorMessage } from '../api/client'
 import './Login.css'
 
-function Icon({ name, size = 20, className = '' }) {
+function Icon({ name, size = 18, className = '' }) {
   const paths = {
     user: (
       <>
@@ -35,41 +35,10 @@ function Icon({ name, size = 20, className = '' }) {
         <path d="M9.9 5.2A10 10 0 0 1 12 5c6.5 0 10 7 10 7a14 14 0 0 1-3.1 3.8M6.2 6.2C3.5 8 2 12 2 12s3.5 7 10 7a9.8 9.8 0 0 0 3-.5" />
       </>
     ),
-    chart: (
-      <>
-        <path d="M3 3v18h18" />
-        <path d="m19 9-5 5-4-4-3 3" />
-      </>
-    ),
-    chip: (
-      <>
-        <rect width="18" height="18" x="3" y="3" rx="2" />
-        <path d="M9 9h6v6H9zM9 1v2m6-2v2M9 21v2m6-2v2M1 9h2m-2 6h2m18-6h2m-2 6h2" />
-      </>
-    ),
     shield: (
       <>
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
         <path d="m9 12 2 2 4-4" />
-      </>
-    ),
-    fileText: (
-      <>
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="16" y1="13" x2="8" y2="13" />
-        <line x1="16" y1="17" x2="8" y2="17" />
-        <polyline points="10 9 9 9 8 9" />
-      </>
-    ),
-    bolt: (
-      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
-    ),
-    login: (
-      <>
-        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-        <polyline points="10 17 15 12 10 7" />
-        <line x1="15" y1="12" x2="3" y2="12" />
       </>
     ),
     alertCircle: (
@@ -79,38 +48,20 @@ function Icon({ name, size = 20, className = '' }) {
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </>
     ),
-    key: (
-      <>
-        <path d="m21 2-2 2m-1.5 1.5L14 9l-1.5-1.5-2 2L12 11l-2 2-1.5-1.5-2 2L8 15l-4 4a2.83 2.83 0 0 1-4-4l4-4 1.5 1.5 2-2L6 9l2-2 1.5 1.5 2-2L10 5l1.5-1.5z" />
-        <circle cx="15.5" cy="8.5" r=".5" fill="currentColor" />
-      </>
-    ),
     checkCircle: (
       <>
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
         <polyline points="22 4 12 14.01 9 11.01" />
       </>
     ),
-    trendingUp: (
+    arrowLeft: (
       <>
-        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-        <polyline points="17 6 23 6 23 12" />
-      </>
-    ),
-    helpCircle: (
-      <>
-        <circle cx="12" cy="12" r="10" />
-        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-        <line x1="12" y1="17" x2="12.01" y2="17" />
-      </>
-    ),
-    x: (
-      <>
-        <line x1="18" y1="6" x2="6" y2="18" />
-        <line x1="6" y1="6" x2="18" y2="18" />
+        <line x1="19" y1="12" x2="5" y2="12" />
+        <polyline points="12 19 5 12 12 5" />
       </>
     ),
   }
+
   return (
     <svg
       width={size}
@@ -132,9 +83,9 @@ function Icon({ name, size = 20, className = '' }) {
 export default function Login() {
   const [identity, setIdentity] = useState('')
   const [password, setPassword] = useState('')
-  const [visible, setVisible] = useState(false)
-  const [remember, setRemember] = useState(false)
-  const [recoveryStep, setRecoveryStep] = useState(0)
+  const [remember, setRemember] = useState(true)
+  const [showPassword, setShowPassword] = useState(false)
+  const [recoveryStep, setRecoveryStep] = useState(0) // 0: login, 1: req email, 2: verify otp, 3: reset pass
   const [recoveryEmail, setRecoveryEmail] = useState('')
   const [otp, setOtp] = useState('')
   const [resetToken, setResetToken] = useState('')
@@ -143,7 +94,7 @@ export default function Login() {
   const [lockSeconds, setLockSeconds] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [activeModal, setActiveModal] = useState(null) // 'privacy' | 'support' | 'terms' | null
+  const [activeModal, setActiveModal] = useState(null) // 'privacy' | 'support' | null
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -151,8 +102,8 @@ export default function Login() {
   useEffect(() => {
     if (!hasActiveTimer) return undefined
     const timer = window.setInterval(() => {
-      setCountdown(v => Math.max(0, v - 1))
-      setLockSeconds(v => Math.max(0, v - 1))
+      setCountdown((v) => Math.max(0, v - 1))
+      setLockSeconds((v) => Math.max(0, v - 1))
     }, 1000)
     return () => window.clearInterval(timer)
   }, [hasActiveTimer])
@@ -162,7 +113,7 @@ export default function Login() {
     setBusy(false)
   }, [location.key])
 
-  // ESC to close modal
+  // ESC to close modals
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && activeModal) {
@@ -187,11 +138,12 @@ export default function Login() {
       await api.get('/auth/csrf')
       await api.post('/auth/login', { identity: cleanIdentity, password: cleanPassword, remember })
       window.dispatchEvent(new Event('sepl-auth-change'))
-      navigate(location.state?.from?.pathname || '/', { replace: true })
+      navigate(location.state?.from?.pathname || '/dashboard', { replace: true })
     } catch (err) {
-      const message = err?.response?.status === 404
-        ? 'The login endpoint returned HTTP 404. Check that the backend is running the authentication routes.'
-        : getErrorMessage(err)
+      const message =
+        err?.response?.status === 404
+          ? 'The login endpoint returned HTTP 404. Check that the backend is running the authentication routes.'
+          : getErrorMessage(err)
       const seconds = Number(message.match(/(?:in|for)\s+(\d+)\s+seconds?/i)?.[1] || 0)
       if (seconds) setLockSeconds(seconds)
       setError(message)
@@ -234,6 +186,7 @@ export default function Login() {
       const { data } = await api.post('/auth/recovery/verify', { email: recoveryEmail.trim(), otp: cleanOtp })
       setResetToken(data.reset_token)
       setRecoveryStep(3)
+      setError('')
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -241,24 +194,22 @@ export default function Login() {
     }
   }
 
-  async function resetPassword(event) {
+  async function performReset(event) {
     event.preventDefault()
     setError('')
-    const confirm = event.currentTarget.elements.confirmPassword.value
-    if (!newPassword || newPassword.length < 12) {
-      setError('Password must be at least 12 characters.')
-      return
-    }
-    if (newPassword !== confirm) {
-      setError('The passwords do not match.')
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters long.')
       return
     }
     setBusy(true)
     try {
-      await api.post('/auth/recovery/reset', { reset_token: resetToken, new_password: newPassword })
+      await api.post('/auth/recovery/reset', {
+        email: recoveryEmail.trim(),
+        reset_token: resetToken,
+        new_password: newPassword,
+      })
       setRecoveryStep(0)
-      setPassword('')
-      setError('Password reset successfully. Sign in with your new password.')
+      setError('Password successfully reset. You can now sign in with your new password.')
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -267,560 +218,416 @@ export default function Login() {
   }
 
   return (
-    <main className="login-page">
-      {/* Left Brand Showcase Section (Deep Navy 50/50 Desktop Showcase) */}
-      <section className="login-showcase" aria-label="SEPL platform introduction">
-        <div className="showcase-inner">
-          <header className="login-brand">
-            <div className="brand-logo-frame">
-              <img src="/sepl_logo.webp" alt="SEPL logo" />
-            </div>
-            <div className="brand-divider" aria-hidden="true" />
-            <div className="brand-meta">
-              <strong className="brand-name">SEPL</strong>
-              <small className="brand-tagline">Smart Solutions. Better Tomorrow.</small>
-            </div>
-            <div className="brand-tier-badge">
-              <span className="tier-dot" />
-              <span>Enterprise Tier</span>
-            </div>
-          </header>
+    <div className="login-page-root min-h-screen bg-slate-50 flex flex-col justify-between selection:bg-blue-600 selection:text-white">
+      {/* Top Bar with Return to Main Website Link */}
+      <header className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex items-center justify-between">
+        <Link
+          to="/"
+          className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-blue-600 transition-colors group"
+          title="Return to Main Website"
+        >
+          <Icon name="arrowLeft" size={16} className="group-hover:-translate-x-1 transition-transform" />
+          <span>Back to Main Website</span>
+        </Link>
 
-          <div className="showcase-content">
-            <div className="showcase-badge">
-              <span className="badge-pulse" />
-              <span>Enterprise Financial Intelligence</span>
-            </div>
-            <h1 className="showcase-title">
-              Turn Financial Data{' '}
-              <span className="title-accent">Into Business Intelligence.</span>
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-xs font-semibold text-slate-500">Secure 256-Bit TLS</span>
+        </div>
+      </header>
+
+      {/* Main Authentication Card Container */}
+      <main className="flex-1 flex items-center justify-center p-4 sm:p-6 my-auto">
+        <div className="w-full max-w-[440px] bg-white rounded-2xl shadow-xl shadow-slate-200/80 border border-slate-200/90 p-8 sm:p-10 transition-all">
+          {/* SEPL Logo (Clickable, returns to main website) */}
+          <div className="flex flex-col items-center text-center mb-7">
+            <Link
+              to="/"
+              className="inline-block mb-3.5 group focus:outline-hidden"
+              title="SEPL - Return to Main Website"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-700 via-blue-600 to-cyan-500 p-0.5 shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform flex items-center justify-center">
+                <div className="w-full h-full rounded-[14px] bg-white flex items-center justify-center p-1.5 overflow-hidden">
+                  <img
+                    src="/sepl_logo.png"
+                    alt="SEPL Logo"
+                    className="w-full h-full object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                      e.currentTarget.parentElement.innerHTML = '<span class="text-blue-600 font-black text-2xl">S</span>'
+                    }}
+                  />
+                </div>
+              </div>
+            </Link>
+
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+              {recoveryStep === 0 && 'Welcome Back'}
+              {recoveryStep === 1 && 'Recover Password'}
+              {recoveryStep === 2 && 'Enter Security Code'}
+              {recoveryStep === 3 && 'Create New Password'}
             </h1>
-            <p className="showcase-desc">
-              Transform complex bank statements into verified audit deliverables with automated zero-delta reconciliation and intelligent classification.
+            <p className="text-sm text-slate-500 mt-1">
+              {recoveryStep === 0 && 'Sign in to your SEPL workspace.'}
+              {recoveryStep === 1 && 'Enter your registered email to receive a recovery code.'}
+              {recoveryStep === 2 && `Enter the 6-digit code sent to ${recoveryEmail}.`}
+              {recoveryStep === 3 && 'Choose a strong new password for your account.'}
             </p>
-
-            <div className="feature-grid">
-              <div className="feature-pill">
-                <div className="feature-icon icon-chart"><Icon name="chart" size={17} /></div>
-                <div className="feature-meta">
-                  <strong>Financial Intelligence</strong>
-                  <small>Automated zero-delta mathematical proof</small>
-                </div>
-              </div>
-              <div className="feature-pill">
-                <div className="feature-icon icon-ai"><Icon name="chip" size={17} /></div>
-                <div className="feature-meta">
-                  <strong>AI-Powered Analysis</strong>
-                  <small>Rule-based & ML pattern recognition</small>
-                </div>
-              </div>
-              <div className="feature-pill">
-                <div className="feature-icon icon-security"><Icon name="shield" size={17} /></div>
-                <div className="feature-meta">
-                  <strong>Enterprise-Grade Security</strong>
-                  <small>Signed sessions & CSRF protection</small>
-                </div>
-              </div>
-              <div className="feature-pill">
-                <div className="feature-icon icon-reporting"><Icon name="fileText" size={17} /></div>
-                <div className="feature-meta">
-                  <strong>Professional Financial Reporting</strong>
-                  <small>Audited PDF, Excel, CSV, HTML & ZIP</small>
-                </div>
-              </div>
-            </div>
           </div>
 
-          {/* Integrated Financial Analytics Illustration — Vector & Benchmark Dashboard */}
-          <div className="financial-visual-board" aria-label="Financial analytics benchmark preview">
-            <div className="visual-board-glass">
-              <div className="board-top-row">
-                <div className="board-status-badge">
-                  <span className="board-live-dot" />
-                  <span>Verified Audit Benchmark</span>
-                </div>
-                <span className="board-period-tag">Axis Bank • June 2023</span>
-              </div>
+          {/* Inline Alert / Error Notice */}
+          {error && (
+            <div
+              role="alert"
+              className={`p-3.5 mb-5 rounded-xl text-xs font-medium flex items-start gap-2.5 ${
+                error.toLowerCase().includes('success')
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  : 'bg-rose-50 text-rose-800 border border-rose-200'
+              }`}
+            >
+              <Icon
+                name={error.toLowerCase().includes('success') ? 'checkCircle' : 'alertCircle'}
+                size={16}
+                className="shrink-0 mt-0.5 text-current"
+              />
+              <span className="leading-snug">{error}</span>
+            </div>
+          )}
 
-              <div className="board-metrics-row">
-                <div className="board-metric-card">
-                  <span className="metric-label">Total Inflow</span>
-                  <div className="metric-value-wrap">
-                    <strong className="metric-val inflow">₹45,48,780</strong>
-                    <span className="trend-badge inflow"><Icon name="trendingUp" size={11} /> 9 Credits</span>
+          {/* Form Step 0: Standard Sign In */}
+          {recoveryStep === 0 && (
+            <form onSubmit={submit} className="space-y-4" noValidate>
+              <div>
+                <label htmlFor="login-identity" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Email Address or Username
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Icon name="mail" size={17} />
                   </div>
-                </div>
-                <div className="board-metric-card">
-                  <span className="metric-label">Total Outflow</span>
-                  <div className="metric-value-wrap">
-                    <strong className="metric-val outflow">₹46,26,410</strong>
-                    <span className="trend-badge outflow">153 Debits</span>
-                  </div>
-                </div>
-                <div className="board-metric-card highlight">
-                  <span className="metric-label">Reconciliation Delta</span>
-                  <div className="metric-value-wrap">
-                    <strong className="metric-val reconciled">Δ = ₹0.00</strong>
-                    <span className="reconciled-badge">BALANCED</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="board-chart-container" aria-hidden="true">
-                <svg className="board-chart-svg" viewBox="0 0 420 85" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#2563eb" stopOpacity="0.22" />
-                      <stop offset="100%" stopColor="#2563eb" stopOpacity="0.0" />
-                    </linearGradient>
-                    <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%" stopColor="#3b82f6" />
-                      <stop offset="55%" stopColor="#2563eb" />
-                      <stop offset="100%" stopColor="#0284c7" />
-                    </linearGradient>
-                  </defs>
-                  {/* Subtle Grid Guidelines */}
-                  <line x1="0" y1="18" x2="420" y2="18" stroke="rgba(203, 213, 225, 0.45)" strokeDasharray="3 3" />
-                  <line x1="0" y1="46" x2="420" y2="46" stroke="rgba(203, 213, 225, 0.45)" strokeDasharray="3 3" />
-                  <line x1="0" y1="74" x2="420" y2="74" stroke="rgba(203, 213, 225, 0.45)" strokeDasharray="3 3" />
-
-                  {/* Shaded Area Fill */}
-                  <path
-                    d="M 0 68 Q 65 52, 115 58 T 215 32 T 315 42 T 420 18 L 420 85 L 0 85 Z"
-                    fill="url(#chartGradient)"
-                  />
-                  {/* Smooth Trend Curve */}
-                  <path
-                    d="M 0 68 Q 65 52, 115 58 T 215 32 T 315 42 T 420 18"
-                    fill="none"
-                    stroke="url(#lineGradient)"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                  />
-                  {/* Visual Data Points */}
-                  <circle cx="115" cy="58" r="3.5" fill="#ffffff" stroke="#2563eb" strokeWidth="2" />
-                  <circle cx="215" cy="32" r="3.5" fill="#ffffff" stroke="#2563eb" strokeWidth="2" />
-                  <circle cx="315" cy="42" r="3.5" fill="#ffffff" stroke="#2563eb" strokeWidth="2" />
-                  <circle cx="420" cy="18" r="4" fill="#2563eb" stroke="#ffffff" strokeWidth="2" />
-                </svg>
-              </div>
-
-              <div className="board-bottom-row">
-                <div className="board-stat">
-                  <Icon name="checkCircle" size={13} className="stat-icon-green" />
-                  <span>162 Transactions Audited</span>
-                </div>
-                <div className="board-stat">
-                  <Icon name="shield" size={13} className="stat-icon-blue" />
-                  <span>CSRF & Session Protected</span>
-                </div>
-                <div className="board-stat">
-                  <Icon name="chart" size={13} className="stat-icon-cyan" />
-                  <span>Zero-Delta Reconciled</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Left Panel Enterprise Footer */}
-          <footer className="showcase-footer">
-            <div className="compliance-row">
-              <span>SOC 2 Type II Certified</span>
-              <span className="compliance-divider">•</span>
-              <span>256-Bit TLS Encryption</span>
-              <span className="compliance-divider">•</span>
-              <span>Zero Data Retention AI</span>
-            </div>
-            <div className="copyright-row">
-              © 2026 SEPL Inc. All rights reserved. Enterprise Financial Intelligence.
-            </div>
-          </footer>
-        </div>
-      </section>
-
-      {/* Right Authentication Card Section */}
-      <section className="login-side">
-        {/* Mobile Brand Bar (Visible on mobile screens) */}
-        <div className="mobile-brand-bar">
-          <div className="mobile-logo-frame">
-            <img src="/sepl_logo.webp" alt="SEPL logo" />
-          </div>
-          <div className="mobile-brand-meta">
-            <strong>SEPL</strong>
-            <small>AI Data Analysis Platform</small>
-          </div>
-        </div>
-
-        {recoveryStep === 0 ? (
-          <form className="login-card" onSubmit={submit} noValidate aria-label="Sign in form">
-            <div className="card-header">
-              <div className="card-badge-icon">
-                <Icon name="shield" size={24} />
-              </div>
-              <h2>Welcome Back</h2>
-              <p className="login-subtitle">Sign in to your enterprise workspace</p>
-            </div>
-
-            <div className="form-fields">
-              <div className="input-group">
-                <label htmlFor="login-identity" className="input-label">User Name / Email</label>
-                <div className="login-field">
-                  <span className="field-icon"><Icon name="user" size={18} /></span>
                   <input
                     id="login-identity"
                     type="text"
+                    required
+                    autoFocus
                     autoComplete="username"
                     value={identity}
-                    onChange={e => setIdentity(e.target.value)}
+                    onChange={(e) => setIdentity(e.target.value)}
                     placeholder="name@company.com"
-                    spellCheck={false}
                     disabled={busy || lockSeconds > 0}
-                    aria-required="true"
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 text-slate-900 text-sm outline-hidden transition-all bg-white disabled:bg-slate-50 disabled:text-slate-400"
                   />
                 </div>
               </div>
 
-              <div className="input-group">
-                <div className="label-row">
-                  <label htmlFor="login-password" className="input-label">Password</label>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="login-password" className="block text-xs font-semibold text-slate-700">
+                    Password
+                  </label>
                   <button
                     type="button"
-                    className="text-action forgot-link"
-                    onClick={() => { setError(''); setRecoveryStep(1) }}
-                    disabled={busy}
+                    onClick={() => {
+                      setError('')
+                      setRecoveryStep(1)
+                    }}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors"
                   >
                     Forgot Password?
                   </button>
                 </div>
-                <div className="login-field">
-                  <span className="field-icon"><Icon name="lock" size={18} /></span>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Icon name="lock" size={17} />
+                  </div>
                   <input
                     id="login-password"
-                    type={visible ? 'text' : 'password'}
+                    type={showPassword ? 'text' : 'password'}
+                    required
                     autoComplete="current-password"
                     value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="Enter password"
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
                     disabled={busy || lockSeconds > 0}
-                    aria-required="true"
+                    className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 text-slate-900 text-sm outline-hidden transition-all bg-white disabled:bg-slate-50 disabled:text-slate-400"
                   />
                   <button
                     type="button"
-                    className="password-toggle"
-                    aria-label={visible ? 'Hide password' : 'Show password'}
-                    onClick={() => setVisible(v => !v)}
-                    disabled={busy || lockSeconds > 0}
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-hidden"
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
-                    <Icon name={visible ? 'eyeOff' : 'eye'} size={18} />
+                    <Icon name={showPassword ? 'eyeOff' : 'eye'} size={17} />
                   </button>
                 </div>
               </div>
 
-              <div className="login-options">
-                <label className="remember-option">
+              <div className="flex items-center pt-1 pb-1">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={remember}
-                    onChange={e => setRemember(e.target.checked)}
-                    disabled={busy || lockSeconds > 0}
+                    onChange={(e) => setRemember(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 transition-colors"
                   />
-                  <span>Remember Me</span>
+                  <span className="text-xs font-medium text-slate-600">Remember this device for 30 days</span>
                 </label>
               </div>
-            </div>
 
-            {error && (
-              <div className="login-error" role="alert" aria-live="assertive">
-                <Icon name="alertCircle" size={18} className="alert-icon" />
-                <span>{error}</span>
+              <button
+                type="submit"
+                disabled={busy || lockSeconds > 0}
+                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-sm shadow-md shadow-blue-600/25 hover:shadow-blue-600/35 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer mt-2"
+              >
+                {busy ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Signing In…</span>
+                  </>
+                ) : lockSeconds > 0 ? (
+                  <span>Locked ({lockSeconds}s)</span>
+                ) : (
+                  <span>Sign In</span>
+                )}
+              </button>
+            </form>
+          )}
+
+          {/* Form Step 1: Request Password Recovery */}
+          {recoveryStep === 1 && (
+            <form onSubmit={requestRecovery} className="space-y-4">
+              <div>
+                <label htmlFor="recovery-email" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Registered Email Address
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Icon name="mail" size={17} />
+                  </div>
+                  <input
+                    id="recovery-email"
+                    type="email"
+                    required
+                    autoFocus
+                    value={recoveryEmail}
+                    onChange={(e) => setRecoveryEmail(e.target.value)}
+                    placeholder="name@company.com"
+                    disabled={busy}
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 text-slate-900 text-sm outline-hidden transition-all bg-white"
+                  />
+                </div>
               </div>
-            )}
 
-            {lockSeconds > 0 && (
-              <div className="login-lockout" role="status">
-                <Icon name="lock" size={18} className="alert-icon" />
-                <span>Sign in is temporarily locked. Try again in {Math.floor(lockSeconds / 60)}:{String(lockSeconds % 60).padStart(2, '0')}.</span>
+              <button
+                type="submit"
+                disabled={busy}
+                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all disabled:opacity-60"
+              >
+                {busy ? 'Sending Code…' : 'Send Verification Code'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setError('')
+                  setRecoveryStep(0)
+                }}
+                className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+              >
+                ← Back to Sign In
+              </button>
+            </form>
+          )}
+
+          {/* Form Step 2: Verify Recovery OTP */}
+          {recoveryStep === 2 && (
+            <form onSubmit={verifyOTP} className="space-y-4">
+              <div>
+                <label htmlFor="recovery-otp" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  6-Digit Verification Code
+                </label>
+                <input
+                  id="recovery-otp"
+                  type="text"
+                  required
+                  autoFocus
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder="123456"
+                  disabled={busy}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 text-slate-900 text-center font-mono tracking-widest text-lg outline-hidden bg-white"
+                />
               </div>
-            )}
 
+              <button
+                type="submit"
+                disabled={busy}
+                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all disabled:opacity-60"
+              >
+                {busy ? 'Verifying…' : 'Verify Code'}
+              </button>
+
+              <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError('')
+                    setRecoveryStep(0)
+                  }}
+                  className="hover:text-slate-800"
+                >
+                  ← Back to Sign In
+                </button>
+                {countdown > 0 ? (
+                  <span>Resend in {countdown}s</span>
+                ) : (
+                  <button type="button" onClick={requestRecovery} className="text-blue-600 font-semibold hover:underline">
+                    Resend Code
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
+
+          {/* Form Step 3: Set New Password */}
+          {recoveryStep === 3 && (
+            <form onSubmit={performReset} className="space-y-4">
+              <div>
+                <label htmlFor="recovery-new-password" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  New Strong Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Icon name="lock" size={17} />
+                  </div>
+                  <input
+                    id="recovery-new-password"
+                    type="password"
+                    required
+                    autoFocus
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    disabled={busy}
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 text-slate-900 text-sm outline-hidden bg-white"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={busy}
+                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all disabled:opacity-60"
+              >
+                {busy ? 'Resetting…' : 'Update Password & Sign In'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setError('')
+                  setRecoveryStep(0)
+                }}
+                className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+              >
+                ← Back to Sign In
+              </button>
+            </form>
+          )}
+
+          {/* Card Footer Links */}
+          <div className="mt-8 pt-6 border-t border-slate-100 flex items-center justify-center gap-4 text-xs text-slate-500">
             <button
-              className="login-submit"
-              disabled={busy || lockSeconds > 0}
-              type="submit"
-              aria-label="Sign In"
+              type="button"
+              onClick={() => setActiveModal('privacy')}
+              className="hover:text-blue-600 transition-colors cursor-pointer"
             >
-              {busy ? (
-                <span className="login-spinner" />
-              ) : (
-                <Icon name="login" size={20} />
-              )}
-              <span>{busy ? 'Signing in…' : lockSeconds > 0 ? 'Please wait' : 'Sign In'}</span>
+              Privacy Policy
             </button>
+            <span>•</span>
+            <button
+              type="button"
+              onClick={() => setActiveModal('support')}
+              className="hover:text-blue-600 transition-colors cursor-pointer"
+            >
+              Enterprise Support
+            </button>
+          </div>
+        </div>
+      </main>
 
-            {/* Privacy and Support Links */}
-            <div className="login-legal-links" aria-label="Privacy and support resources">
-              <button
-                type="button"
-                className="legal-item"
-                onClick={() => setActiveModal('privacy')}
-              >
-                Privacy Policy
-              </button>
-              <span className="legal-bullet" aria-hidden="true">•</span>
-              <button
-                type="button"
-                className="legal-item"
-                onClick={() => setActiveModal('support')}
-              >
-                Enterprise Support
-              </button>
-              <span className="legal-bullet" aria-hidden="true">•</span>
-              <button
-                type="button"
-                className="legal-item"
-                onClick={() => setActiveModal('terms')}
-              >
-                Security Terms
-              </button>
-            </div>
+      {/* Page Footer */}
+      <footer className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 text-center text-xs text-slate-400">
+        Powered by SEPL • Smart Solutions. Better Tomorrow.
+      </footer>
 
-            <footer className="card-footer">
-              <div className="card-divider" />
-              <div className="powered-by">
-                Powered by <strong>SEPL</strong> • Enterprise Financial Intelligence
-              </div>
-            </footer>
-          </form>
-        ) : (
-          <form
-            className="login-card"
-            onSubmit={recoveryStep === 1 ? requestRecovery : recoveryStep === 2 ? verifyOTP : resetPassword}
-            noValidate
-            aria-label="Password recovery form"
+      {/* Interactive Compliance Modals */}
+      {activeModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setActiveModal(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl border border-slate-200 p-6 shadow-2xl relative text-left"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="card-header">
-              <div className="card-badge-icon recovery">
-                <Icon name={recoveryStep === 1 ? 'mail' : recoveryStep === 2 ? 'shield' : 'key'} size={24} />
-              </div>
-              <div className="recovery-step-indicator">
-                <span>Step {recoveryStep} of 3</span>
-              </div>
-              <h2>{recoveryStep === 1 ? 'Reset Password' : recoveryStep === 2 ? 'Verify Email' : 'Choose Password'}</h2>
-              <p className="login-subtitle">
-                {recoveryStep === 1
-                  ? 'Enter your registered email to receive a secure recovery code'
-                  : recoveryStep === 2
-                  ? `Enter the 6-digit verification code sent to ${recoveryEmail || 'your email'}`
-                  : 'Create a secure new password for your account'}
-              </p>
+            <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 mb-3.5">
+              <h3 className="text-base font-bold text-slate-900">
+                {activeModal === 'privacy' && 'Enterprise Data Privacy & Security'}
+                {activeModal === 'support' && 'Enterprise Technical Support'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                aria-label="Close dialog"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="form-fields">
-              {recoveryStep === 1 && (
-                <div className="input-group">
-                  <label htmlFor="recovery-email" className="input-label">Registered Email</label>
-                  <div className="login-field">
-                    <span className="field-icon"><Icon name="mail" size={18} /></span>
-                    <input
-                      id="recovery-email"
-                      required
-                      type="email"
-                      autoComplete="email"
-                      value={recoveryEmail}
-                      onChange={e => setRecoveryEmail(e.target.value)}
-                      placeholder="name@company.com"
-                      disabled={busy}
-                      aria-required="true"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {recoveryStep === 2 && (
-                <div className="input-group">
-                  <div className="label-row">
-                    <label htmlFor="otp-code" className="input-label">Verification Code</label>
-                    <button
-                      type="button"
-                      className="text-action"
-                      disabled={countdown > 0 || busy}
-                      onClick={requestRecovery}
-                    >
-                      {countdown > 0 ? `Resend in ${countdown}s` : 'Resend code'}
-                    </button>
-                  </div>
-                  <div className="login-field otp-field">
-                    <input
-                      id="otp-code"
-                      required
-                      inputMode="numeric"
-                      pattern="[0-9]{6}"
-                      maxLength={6}
-                      value={otp}
-                      onChange={e => setOtp(e.target.value)}
-                      placeholder="6-digit verification code"
-                      className="otp-input"
-                      disabled={busy}
-                      aria-required="true"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {recoveryStep === 3 && (
+            <div className="text-xs text-slate-600 space-y-2.5 leading-relaxed">
+              {activeModal === 'privacy' && (
                 <>
-                  <div className="input-group">
-                    <label htmlFor="new-pass" className="input-label">New Password</label>
-                    <div className="login-field">
-                      <span className="field-icon"><Icon name="lock" size={18} /></span>
-                      <input
-                        id="new-pass"
-                        required
-                        type="password"
-                        autoComplete="new-password"
-                        minLength={12}
-                        value={newPassword}
-                        onChange={e => setNewPassword(e.target.value)}
-                        placeholder="New password (12+ characters)"
-                        disabled={busy}
-                        aria-required="true"
-                      />
-                    </div>
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="confirm-pass" className="input-label">Confirm New Password</label>
-                    <div className="login-field">
-                      <span className="field-icon"><Icon name="lock" size={18} /></span>
-                      <input
-                        id="confirm-pass"
-                        required
-                        type="password"
-                        name="confirmPassword"
-                        autoComplete="new-password"
-                        placeholder="Confirm new password"
-                        disabled={busy}
-                        aria-required="true"
-                      />
-                    </div>
+                  <p>
+                    SEPL complies with institutional data security standards. Bank statement data is processed in volatile memory with zero retention upon session termination.
+                  </p>
+                  <p>
+                    All passwords use high-cost Scrypt key derivation, and web sessions use cryptographically signed HttpOnly cookies with CSRF validation.
+                  </p>
+                </>
+              )}
+
+              {activeModal === 'support' && (
+                <>
+                  <p>
+                    For institutional assistance or account activation issues:
+                  </p>
+                  <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1 text-xs">
+                    <div><strong>Email:</strong> support@sepl.local</div>
+                    <div><strong>Security Lead:</strong> security@sepl.local</div>
+                    <div><strong>Response Time:</strong> Institutional SLA (&lt;15 mins)</div>
                   </div>
                 </>
               )}
             </div>
 
-            {error && (
-              <div className="login-error" role="alert" aria-live="assertive">
-                <Icon name="alertCircle" size={18} className="alert-icon" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <button
-              className="login-submit"
-              disabled={busy || (!countdown && recoveryStep === 2 && otp.length !== 6)}
-              type="submit"
-              aria-label={recoveryStep === 1 ? 'Send recovery code' : recoveryStep === 2 ? 'Verify code' : 'Reset password'}
-            >
-              {busy ? (
-                <span className="login-spinner" />
-              ) : (
-                <Icon name="login" size={20} />
-              )}
-              <span>
-                {busy
-                  ? 'Please wait…'
-                  : recoveryStep === 1
-                  ? 'Send recovery code'
-                  : recoveryStep === 2
-                  ? 'Verify code'
-                  : 'Reset password'}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              className="text-action recovery-back"
-              onClick={() => { setRecoveryStep(0); setError('') }}
-              disabled={busy}
-              aria-label="Back to sign in"
-            >
-              ← Back to sign in
-            </button>
-
-            <footer className="card-footer">
-              <div className="card-divider" />
-              <div className="powered-by">
-                Powered by <strong>SEPL</strong> • Enterprise Financial Intelligence
-              </div>
-            </footer>
-          </form>
-        )}
-
-        {/* Enterprise Compliance & Support Information Modal */}
-        {activeModal && (
-          <div className="modal-backdrop" onClick={() => setActiveModal(null)} role="dialog" aria-modal="true" aria-labelledby="modal-title">
-            <div className="info-modal-card" onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <div className="modal-title-wrap">
-                  <Icon name={activeModal === 'privacy' ? 'shield' : activeModal === 'support' ? 'helpCircle' : 'fileText'} size={20} className="modal-icon" />
-                  <h3 id="modal-title">
-                    {activeModal === 'privacy' ? 'Enterprise Privacy Policy' : activeModal === 'support' ? 'Enterprise Technical Support' : 'Security & Access Terms'}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  className="modal-close-btn"
-                  onClick={() => setActiveModal(null)}
-                  aria-label="Close modal"
-                >
-                  <Icon name="x" size={18} />
-                </button>
-              </div>
-
-              <div className="modal-body">
-                {activeModal === 'privacy' && (
-                  <div className="compliance-text">
-                    <p><strong>Zero-Retention Financial Privacy:</strong> SEPL operates under strict enterprise data isolation principles. Financial records and bank statement contents processed by the AI Data Analysis Platform are never stored or retained by third-party model providers, nor are they used for public model retraining.</p>
-                    <p><strong>Encrypted At Rest & In Transit:</strong> All customer data is secured with AES-256 encryption at rest and TLS 1.3 encryption in transit. Session tokens are cryptographically signed and stored in hardened MongoDB Atlas clusters.</p>
-                    <p><strong>Strict Access Controls:</strong> Role-based access control (RBAC) ensures only authorized analysts and administrators within your organization have access to statement summaries and analytical exports.</p>
-                  </div>
-                )}
-                {activeModal === 'support' && (
-                  <div className="compliance-text">
-                    <p><strong>24/7 Enterprise Assistance:</strong> For access requests, password resets, or security inquiries, please contact your organization administrator or the SEPL enterprise support desk.</p>
-                    <div className="support-contact-box">
-                      <div className="contact-item">
-                        <strong>Primary Support:</strong> <code>support@sepl.local</code>
-                      </div>
-                      <div className="contact-item">
-                        <strong>Security Operations:</strong> <code>itsmaatech@gmail.com</code>
-                      </div>
-                      <div className="contact-item">
-                        <strong>Response SLA:</strong> Under 1 hour for Priority 1 enterprise workspace events.
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {activeModal === 'terms' && (
-                  <div className="compliance-text">
-                    <p><strong>Authorized Access Only:</strong> This system is restricted to authorized personnel. All session activity, authentication events, and administrative changes are recorded in tamper-evident cryptographic audit logs.</p>
-                    <p><strong>Protection Measures:</strong> Unauthorized attempts to bypass CSRF validation, session signature verification, or rate limits will result in automatic session termination and IP throttling.</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="modal-action-btn"
-                  onClick={() => setActiveModal(null)}
-                >
-                  Close
-                </button>
-              </div>
+            <div className="mt-5 pt-3.5 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs"
+              >
+                Close Dialog
+              </button>
             </div>
           </div>
-        )}
-      </section>
-    </main>
+        </div>
+      )}
+    </div>
   )
 }

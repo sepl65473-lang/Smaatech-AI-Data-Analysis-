@@ -110,7 +110,7 @@ export default function Results() {
 
   const fetchResults = useCallback(() => {
     if (!sessionId) {
-      navigate('/', { replace: true })
+      navigate('/dashboard', { replace: true })
       return
     }
     setLoading(true)
@@ -384,12 +384,12 @@ export default function Results() {
       <ErrorView
         message={error ?? 'Something went wrong.'}
         onRetry={fetchResults}
-        onReupload={() => navigate('/')}
+        onReupload={() => navigate('/dashboard')}
       />
     )
 
   if (isDataset)
-    return <DatasetResults result={result} sessionId={sessionId} onNew={() => navigate('/')} />
+    return <DatasetResults result={result} sessionId={sessionId} onNew={() => navigate('/dashboard')} />
 
   const { metrics, insights, recurring_summary, transactions } = result
   const [startDate, endDate] = metrics.date_range
@@ -401,7 +401,7 @@ export default function Results() {
         startDate={startDate}
         endDate={endDate}
         showPowerBiBadge={true}
-        onNewStatement={() => navigate('/')}
+        onNewStatement={() => navigate('/dashboard')}
       />
 
       {/* Sticky Quick-Navigation Bar */}
