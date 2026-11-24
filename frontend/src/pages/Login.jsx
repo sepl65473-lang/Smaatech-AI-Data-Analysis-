@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import api, { getErrorMessage } from '../api/client'
+import api, { getErrorMessage, ensureCsrf } from '../api/client'
 import './Login.css'
 
 function Icon({ name, size = 18, className = '' }) {
@@ -135,7 +135,7 @@ export default function Login() {
     }
     setBusy(true)
     try {
-      await api.get('/auth/csrf')
+      await ensureCsrf(true)
       await api.post('/auth/login', { identity: cleanIdentity, password: cleanPassword, remember })
       window.dispatchEvent(new Event('sepl-auth-change'))
       navigate(location.state?.from?.pathname || '/dashboard', { replace: true })
@@ -162,6 +162,7 @@ export default function Login() {
     }
     setBusy(true)
     try {
+      await ensureCsrf(true)
       const { data } = await api.post('/auth/recovery/request', { email: cleanEmail })
       setRecoveryStep(2)
       setCountdown(60)
@@ -183,6 +184,7 @@ export default function Login() {
     }
     setBusy(true)
     try {
+      await ensureCsrf()
       const { data } = await api.post('/auth/recovery/verify', { email: recoveryEmail.trim(), otp: cleanOtp })
       setResetToken(data.reset_token)
       setRecoveryStep(3)
@@ -203,6 +205,7 @@ export default function Login() {
     }
     setBusy(true)
     try {
+      await ensureCsrf()
       await api.post('/auth/recovery/reset', {
         email: recoveryEmail.trim(),
         reset_token: resetToken,
@@ -279,11 +282,10 @@ export default function Login() {
           {error && (
             <div
               role="alert"
-              className={`p-3.5 mb-5 rounded-xl text-xs font-medium flex items-start gap-2.5 ${
-                error.toLowerCase().includes('success')
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  : 'bg-rose-50 text-rose-800 border border-rose-200'
-              }`}
+              className={`p-3.5 mb-5 rounded-xl text-xs font-medium flex items-start gap-2.5 ${error.toLowerCase().includes('success')
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}
             >
               <Icon
                 name={error.toLowerCase().includes('success') ? 'checkCircle' : 'alertCircle'}
@@ -330,6 +332,7 @@ export default function Login() {
                     onClick={() => {
                       setError('')
                       setRecoveryStep(1)
+                      ensureCsrf(true)
                     }}
                     className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors"
                   >

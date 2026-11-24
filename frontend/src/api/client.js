@@ -4,6 +4,36 @@ export const API_BASE_URL = (typeof window !== 'undefined' && (window.location.h
   ? '/api'
   : (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 let csrfToken = ''
+let csrfPromise = null
+
+export function getCookieCsrf() {
+  if (typeof document === 'undefined') return ''
+  const cookiePart = document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))
+  return cookiePart ? decodeURIComponent(cookiePart.split('=').slice(1).join('=')) : ''
+}
+
+export async function ensureCsrf(force = false) {
+  const cookieVal = getCookieCsrf()
+  if (!force && csrfToken && cookieVal && csrfToken === cookieVal) {
+    return csrfToken
+  }
+
+  if (!csrfPromise) {
+    csrfPromise = axios
+      .get(`${API_BASE_URL}/auth/csrf`, { withCredentials: true })
+      .then((res) => {
+        if (res.data?.csrf_token) {
+          csrfToken = res.data.csrf_token
+        }
+        return csrfToken || getCookieCsrf()
+      })
+      .catch(() => csrfToken || getCookieCsrf())
+      .finally(() => {
+        csrfPromise = null
+      })
+  }
+  return csrfPromise
+}
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -11,27 +41,60 @@ const api = axios.create({
   withCredentials: true,
 })
 
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   const method = (config.method || 'get').toUpperCase()
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
-    const cookiePart = document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))
-    const csrf = cookiePart ? decodeURIComponent(cookiePart.split('=').slice(1).join('=')) : csrfToken
-    if (csrf) config.headers['X-CSRF-Token'] = csrf
+    if (!config.url?.endsWith('/auth/csrf')) {
+      let csrf = csrfToken || getCookieCsrf()
+      if (!csrf) {
+        csrf = await ensureCsrf(true)
+      }
+      const cookieVal = getCookieCsrf()
+      const token = cookieVal || csrf || csrfToken
+      if (token) {
+        config.headers['X-CSRF-Token'] = token
+      }
+    }
   }
   return config
 })
 
 api.interceptors.response.use(
   (response) => {
-    if (response.config.url?.endsWith('/auth/csrf') && response.data?.csrf_token) csrfToken = response.data.csrf_token
+    if (response.config.url?.endsWith('/auth/csrf') && response.data?.csrf_token) {
+      csrfToken = response.data.csrf_token
+    }
     return response
   },
   async (error) => {
     const config = error.config
     if (!config) return Promise.reject(error)
 
-    const isGet = (config.method || 'get').toUpperCase() === 'GET'
     const status = error.response?.status
+    const detail = error.response?.data?.detail
+    const isCsrfError = status === 403 && typeof detail === 'string' && (
+      detail.toLowerCase().includes('refresh the page') ||
+      detail.toLowerCase().includes('csrf')
+    )
+
+    // Controlled single-retry for expired/mismatched CSRF tokens
+    if (isCsrfError) {
+      config.__csrfRetryCount = config.__csrfRetryCount || 0
+      if (config.__csrfRetryCount < 1) {
+        config.__csrfRetryCount += 1
+        try {
+          const freshToken = await ensureCsrf(true)
+          if (freshToken) {
+            config.headers['X-CSRF-Token'] = freshToken
+          }
+          return api(config)
+        } catch (retryErr) {
+          return Promise.reject(retryErr)
+        }
+      }
+    }
+
+    const isGet = (config.method || 'get').toUpperCase() === 'GET'
     const isTransient = [502, 503, 504].includes(status) || error.code === 'ECONNABORTED'
 
     config.__retryCount = config.__retryCount || 0
@@ -46,8 +109,7 @@ api.interceptors.response.use(
 )
 
 export function getCsrfToken() {
-  const cookiePart = document.cookie.split('; ').find((part) => part.startsWith('sepl_csrf='))
-  return cookiePart ? decodeURIComponent(cookiePart.split('=').slice(1).join('=')) : csrfToken
+  return getCookieCsrf() || csrfToken
 }
 
 export function apiUrl(path) {
