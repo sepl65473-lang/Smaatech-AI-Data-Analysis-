@@ -1,14 +1,18 @@
 """Cookie-based login, account bootstrap, lockout, sessions and OTP recovery."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import os
 import secrets
 import smtplib
 import ssl
 import time
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
 from typing import Optional
 
@@ -342,65 +346,158 @@ async def change_password(body: ChangePasswordBody, request: Request, response: 
     auth_store.update(change)
     _cookie(response, SESSION_COOKIE, replacement, max_age=ABSOLUTE_SECONDS, httponly=True)
     try:
-        if not _send_password_notice(current["email"]): raise RuntimeError("SMTP is not configured")
+        if not await asyncio.to_thread(_send_password_notice, current["email"]): raise RuntimeError("Email delivery failed")
     except Exception:
         log.warning("Password change notification delivery failed.")
         auth_store.update(lambda db: auth_store.audit(db, "password_notice_delivery_failed", current["id"], current["id"]))
     return {"ok": True}
 
 
-def _send_otp(email: str, otp: str):
-    host = os.getenv("SMTP_HOST", ""); sender = os.getenv("SMTP_FROM_EMAIL", ""); port = int(os.getenv("SMTP_PORT", "587"))
-    if not host or not sender: return False
-    msg = EmailMessage(); msg["Subject"] = "SEPL account recovery code"; msg["From"] = sender; msg["To"] = email
-    msg.set_content(f"Your SEPL password recovery code is {otp}. It expires in 10 minutes. If you did not request this, ignore this email.")
-    msg.add_alternative(f"<div style='font-family:Arial;color:#12306b'><h2>SEPL account recovery</h2><p>Your verification code is:</p><p style='font-size:28px;font-weight:bold;letter-spacing:6px'>{otp}</p><p>This code expires in 10 minutes. Ignore this message if you did not request it.</p></div>", subtype="html")
-    context = ssl.create_default_context()
-    client = smtplib.SMTP_SSL(host, port, timeout=15, context=context) if port == 465 else smtplib.SMTP(host, port, timeout=15)
-    with client as server:
-        if port != 465: server.starttls(context=context)
-        username = os.getenv("SMTP_USERNAME", "")
-        if username: server.login(username, os.getenv("SMTP_PASSWORD", ""))
-        server.send_message(msg)
-    return True
+def _has_email_provider() -> bool:
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    if api_key:
+        return bool(os.getenv("RESEND_FROM_EMAIL", "").strip())
+    return bool(os.getenv("SMTP_HOST", "").strip() and os.getenv("SMTP_FROM_EMAIL", "").strip())
 
 
-def _send_password_notice(email: str):
-    host = os.getenv("SMTP_HOST", ""); sender = os.getenv("SMTP_FROM_EMAIL", ""); port = int(os.getenv("SMTP_PORT", "587"))
-    if not host or not sender: return False
-    msg = EmailMessage(); msg["Subject"] = "Your SEPL password was changed"; msg["From"] = sender; msg["To"] = email
-    msg.set_content("Your SEPL account password was changed. If you did not make this change, contact your administrator immediately.")
-    msg.add_alternative("<div style='font-family:Arial;color:#12306b'><h2>SEPL security notice</h2><p>Your account password was changed.</p><p>If you did not make this change, contact your administrator immediately.</p></div>", subtype="html")
+def _send_email_resend(
+    to_email: str,
+    subject: str,
+    text_content: str,
+    html_content: str,
+    *,
+    idempotency_key: str | None = None
+) -> bool:
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    from_email = os.getenv("RESEND_FROM_EMAIL", "").strip()
+    from_name = os.getenv("RESEND_FROM_NAME", "SEPL Security").strip()
+    if not api_key or not from_email:
+        return False
+
+    sender = f"{from_name} <{from_email}>" if from_name else from_email
+    payload = {
+        "from": sender,
+        "to": [to_email],
+        "subject": subject,
+        "text": text_content,
+        "html": html_content,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "SEPL-AI-Data-Analysis/1.0",
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = str(idempotency_key)
+
+    req = urllib.request.Request("https://api.resend.com/emails", data=data, headers=headers, method="POST")
     context = ssl.create_default_context()
-    client = smtplib.SMTP_SSL(host, port, timeout=15, context=context) if port == 465 else smtplib.SMTP(host, port, timeout=15)
-    with client as server:
-        if port != 465: server.starttls(context=context)
-        username = os.getenv("SMTP_USERNAME", "")
-        if username: server.login(username, os.getenv("SMTP_PASSWORD", ""))
-        server.send_message(msg)
-    return True
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=context) as resp:
+            if resp.status in (200, 201):
+                res_body = json.loads(resp.read().decode("utf-8"))
+                if not isinstance(res_body, dict):
+                    log.warning("Resend returned unexpected non-object JSON payload.")
+                    return False
+                email_id = res_body.get("id")
+                if not isinstance(email_id, str) or not email_id.strip():
+                    log.warning("Resend response missing valid email id.")
+                    return False
+                log.info("Email dispatched successfully via Resend HTTPS: id=%s", email_id.strip())
+                return True
+            log.warning("Resend returned unexpected HTTP status: %s", resp.status)
+            return False
+    except urllib.error.HTTPError as e:
+        log.warning("Resend API rejected request: HTTP %s reason=%s", e.code, e.reason)
+        return False
+    except urllib.error.URLError as e:
+        log.warning("Resend API connection error: %s", type(e.reason).__name__ if e.reason else type(e).__name__)
+        return False
+    except TimeoutError:
+        log.warning("Resend API request timed out after 10 seconds.")
+        return False
+    except Exception as e:
+        log.warning("Resend API unexpected failure: %s", type(e).__name__)
+        return False
+
+
+def _send_email_smtp(
+    to_email: str,
+    subject: str,
+    text_content: str,
+    html_content: str
+) -> bool:
+    host = os.getenv("SMTP_HOST", "").strip()
+    sender = os.getenv("SMTP_FROM_EMAIL", "").strip()
+    port = int(os.getenv("SMTP_PORT", "587"))
+    sender_name = os.getenv("SMTP_FROM_NAME", "SEPL Security").strip()
+    if not host or not sender:
+        return False
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = f"{sender_name} <{sender}>" if sender_name else sender
+    msg["To"] = to_email
+    msg.set_content(text_content)
+    msg.add_alternative(html_content, subtype="html")
+
+    context = ssl.create_default_context()
+    client = smtplib.SMTP_SSL(host, port, timeout=10, context=context) if port == 465 else smtplib.SMTP(host, port, timeout=10)
+    try:
+        with client as server:
+            if port != 465:
+                server.starttls(context=context)
+            username = os.getenv("SMTP_USERNAME", "").strip()
+            if username:
+                server.login(username, os.getenv("SMTP_PASSWORD", ""))
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        log.warning("SMTP dispatch failure: %s", type(e).__name__)
+        return False
+
+
+def _send_email(
+    to_email: str,
+    subject: str,
+    text_content: str,
+    html_content: str,
+    *,
+    idempotency_key: str | None = None
+) -> bool:
+    if os.getenv("RESEND_API_KEY", "").strip():
+        return _send_email_resend(to_email, subject, text_content, html_content, idempotency_key=idempotency_key)
+    if os.getenv("SMTP_HOST", "").strip() and os.getenv("SMTP_FROM_EMAIL", "").strip():
+        return _send_email_smtp(to_email, subject, text_content, html_content)
+    return False
+
+
+def _send_otp(email: str, otp: str, *args, **kwargs) -> bool:
+    subject = "SEPL account recovery code"
+    text = f"Your SEPL password recovery code is {otp}. It expires in 10 minutes. If you did not request this, ignore this email."
+    html = f"<div style='font-family:Arial;color:#12306b'><h2>SEPL account recovery</h2><p>Your verification code is:</p><p style='font-size:28px;font-weight:bold;letter-spacing:6px'>{otp}</p><p>This code expires in 10 minutes. Ignore this message if you did not request it.</p></div>"
+    idempotency_key = kwargs.get("idempotency_key") or hashlib.sha256(f"{email}:{otp}".encode()).hexdigest()
+    return _send_email(email, subject, text, html, idempotency_key=idempotency_key)
+
+
+def _send_password_notice(email: str) -> bool:
+    subject = "Your SEPL password was changed"
+    text = "Your SEPL account password was changed. If you did not make this change, contact your administrator immediately."
+    html = "<div style='font-family:Arial;color:#12306b'><h2>SEPL security notice</h2><p>Your account password was changed.</p><p>If you did not make this change, contact your administrator immediately.</p></div>"
+    return _send_email(email, subject, text, html)
 
 
 def _send_invitation(email: str, full_name: str, activation_url: str, expires_in_hours: int = INVITATION_TTL_HOURS) -> bool:
-    host = os.getenv("SMTP_HOST", "")
-    sender = os.getenv("SMTP_FROM_EMAIL", "")
-    port = int(os.getenv("SMTP_PORT", "587"))
-    sender_name = os.getenv("SMTP_FROM_NAME", "SEPL AI Data Analysis Platform")
-    if not host or not sender:
-        return False
-    msg = EmailMessage()
-    msg["Subject"] = "Welcome to SEPL — Activate Your Account"
-    msg["From"] = f"{sender_name} <{sender}>"
-    msg["To"] = email
-    text_content = (
+    subject = "Welcome to SEPL — Activate Your Account"
+    text = (
         f"Hello {full_name},\n\n"
         "You have been invited to join the SEPL AI Data Analysis Platform.\n\n"
         f"To activate your account and choose your password, visit:\n{activation_url}\n\n"
         f"This link will expire in {expires_in_hours} hours.\n\n"
         "If you did not expect this invitation, please ignore this email."
     )
-    msg.set_content(text_content)
-    html_content = f"""<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px; color: #1e293b;'>
+    html = f"""<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; padding: 24px; color: #1e293b;'>
       <div style='max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden;'>
         <div style='background: linear-gradient(135deg, #1e3a8a, #0f172a); padding: 24px 32px;'>
           <h1 style='color: #ffffff; margin: 0; font-size: 20px; font-weight: 700;'>SEPL AI Data Analysis Platform</h1>
@@ -434,15 +531,7 @@ def _send_invitation(email: str, full_name: str, activation_url: str, expires_in
         </div>
       </div>
     </div>"""
-    msg.add_alternative(html_content, subtype="html")
-    context = ssl.create_default_context()
-    client = smtplib.SMTP_SSL(host, port, timeout=15, context=context) if port == 465 else smtplib.SMTP(host, port, timeout=15)
-    with client as server:
-        if port != 465: server.starttls(context=context)
-        username = os.getenv("SMTP_USERNAME", "")
-        if username: server.login(username, os.getenv("SMTP_PASSWORD", ""))
-        server.send_message(msg)
-    return True
+    return _send_email(email, subject, text, html)
 
 
 @router.get("/activate/verify")
@@ -496,7 +585,7 @@ async def activate_account(body: AccountActivate, request: Request):
 @router.post("/recovery/request")
 async def recovery_request(body: RecoveryRequest, request: Request):
     _csrf_ok(request)
-    if not os.getenv("SMTP_HOST") or not os.getenv("SMTP_FROM_EMAIL"):
+    if not _has_email_provider():
         raise HTTPException(503, "Password recovery is temporarily unavailable. Contact your administrator.")
     email = str(body.email).strip().lower()
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]: raise HTTPException(422, "Enter a valid email address.")
@@ -521,11 +610,12 @@ async def recovery_request(body: RecoveryRequest, request: Request):
     if created["rate_limited"]: raise HTTPException(429, "Too many recovery requests. Try again later.")
     if created["send"]:
         try:
-            if not _send_otp(email, otp): raise RuntimeError("SMTP is not configured")
+            sent = await asyncio.to_thread(_send_otp, email, otp)
+            if not sent: raise RuntimeError("Email delivery failed")
         except Exception:
             def failed(db): db.get("recovery", {}).pop(email, None); auth_store.audit(db, "recovery_delivery_failed", None, None)
             auth_store.update(failed)
-            log.warning("Password recovery delivery failed; configure SMTP and retry.")
+            log.warning("Password recovery delivery failed; configure email delivery provider and retry.")
     return {"message": "If this email belongs to an active account and delivery is available, recovery instructions may arrive. If no message arrives, contact your administrator."}
 
 
@@ -570,7 +660,7 @@ async def recovery_reset(body: PasswordReset, request: Request):
     email = next((address for address, user in record.get("users", {}).items() if user.get("id") == target_user_id), None)
     if email:
         try:
-            if not _send_password_notice(email): raise RuntimeError("SMTP is not configured")
+            if not await asyncio.to_thread(_send_password_notice, email): raise RuntimeError("Email delivery failed")
         except Exception:
             log.warning("Password reset notification delivery failed.")
             auth_store.update(lambda db: auth_store.audit(db, "password_notice_delivery_failed", target_user_id, target_user_id))
@@ -790,7 +880,7 @@ async def admin_create_user(body: AccountCreate, request: Request):
 
     email_sent = False
     try:
-        email_sent = _send_invitation(email, full_name, activation_url, expires_in_hours=INVITATION_TTL_HOURS)
+        email_sent = await asyncio.to_thread(_send_invitation, email, full_name, activation_url, expires_in_hours=INVITATION_TTL_HOURS)
         if email_sent:
             auth_store.update(lambda db: auth_store.audit(db, "invitation_email_sent", actor["id"], created["user"]["id"]))
     except Exception as exc:
@@ -806,7 +896,7 @@ async def admin_create_user(body: AccountCreate, request: Request):
         "permissions": created["user"]["permissions"],
         "email_sent": email_sent,
         "invitation_url": activation_url,
-        "message": "User created and invitation email sent." if email_sent else "User created. SMTP is not configured, so email could not be sent automatically. Copy and share the invitation link.",
+        "message": "User created and invitation email sent." if email_sent else "User created. Email provider is not configured, so email could not be sent automatically. Copy and share the invitation link.",
     }
 
 
@@ -889,7 +979,7 @@ async def admin_resend_invitation(user_id: str, request: Request):
 
     email_sent = False
     try:
-        email_sent = _send_invitation(target["email"], target["full_name"], activation_url, expires_in_hours=INVITATION_TTL_HOURS)
+        email_sent = await asyncio.to_thread(_send_invitation, target["email"], target["full_name"], activation_url, expires_in_hours=INVITATION_TTL_HOURS)
         if email_sent:
             auth_store.update(lambda db: auth_store.audit(db, "invitation_email_sent", actor["id"], user_id))
     except Exception as exc:
@@ -899,7 +989,7 @@ async def admin_resend_invitation(user_id: str, request: Request):
         "ok": True,
         "email_sent": email_sent,
         "invitation_url": activation_url,
-        "message": "Invitation resent." if email_sent else "Invitation renewed. SMTP is not configured, so email could not be sent automatically. Share the invitation link manually.",
+        "message": "Invitation resent." if email_sent else "Invitation renewed. Email delivery provider is not configured, so email could not be sent automatically. Share the invitation link manually.",
     }
 
 
@@ -992,7 +1082,7 @@ async def admin_reset_password(user_id: str, body: AdministratorPasswordReset, r
         found["email"] = user["email"]
     auth_store.update(change)
     try:
-        if not _send_password_notice(found["email"]): raise RuntimeError("SMTP is not configured")
+        if not await asyncio.to_thread(_send_password_notice, found["email"]): raise RuntimeError("Email delivery failed")
     except Exception:
         log.warning("Administrator password reset notification delivery failed.")
         auth_store.update(lambda db: auth_store.audit(db, "password_notice_delivery_failed", actor["id"], user_id))
